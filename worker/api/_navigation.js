@@ -9,6 +9,14 @@ function failure(message, status) {
   return Object.assign(new Error(message), { status });
 }
 
+// JSON object field order is immaterial; category and bookmark array order is not.
+function sameData(left, right) {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object' || Array.isArray(left) !== Array.isArray(right)) return false;
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every(key => Object.hasOwn(right, key) && sameData(left[key], right[key]));
+}
+
 export async function navigationTransaction(env, expectedVersion, requireVersion = false) {
   const source = env.CLOUDNAV_KV;
   let loaded;
@@ -85,6 +93,16 @@ export async function navigationTransaction(env, expectedVersion, requireVersion
         if (!Array.isArray(links) || links.some(link => !link || (link.categoryId && link.categoryId !== id))) throw failure('书签分类数据无效', 400);
         if (links.length && !ids.has(id)) throw failure('书签目标分类不存在', 400);
       }
+      const categoriesChanged = !sameData(categories, previous.categories);
+      // Missing buckets read as empty arrays, including staged deletes.
+      const changedBuckets = Object.entries(buckets).filter(([id, links]) => !sameData(links, previous.buckets[id] || []));
+      if (!categoriesChanged && !changedBuckets.length) {
+        // A no-op must still reject a writer that raced with our initial read.
+        const head = await env.CLOUDNAV_R2.get(NAVIGATION_HEAD);
+        if ((head?.etag || null) !== previous.etag) throw failure('导航已被其他操作修改，请刷新后重试', 409);
+        committed = true;
+        return;
+      }
       const next = { version: crypto.randomUUID(), categories, buckets };
       const key = `${SNAPSHOT_PREFIX}${next.version}`;
       await source.put(key, JSON.stringify(next));
@@ -99,7 +117,8 @@ export async function navigationTransaction(env, expectedVersion, requireVersion
       committed = true;
       // Compatibility mirrors are NOT used for version checks or navigation reads.
       // They may lag/fail/reorder without making a stale write authoritative.
-      const mirrors = [source.put('cate_config', JSON.stringify(categories)), ...Object.entries(buckets).map(([id, links]) => source.put(`links:${id}`, JSON.stringify(links))), ...removed.map(c => source.delete(`links:${c.id}`))];
+      const mirrors = [...changedBuckets.map(([id, links]) => source.put(`links:${id}`, JSON.stringify(links))), ...removed.map(c => source.delete(`links:${c.id}`))];
+      if (categoriesChanged) mirrors.push(source.put('cate_config', JSON.stringify(categories)));
       // Retire superseded snapshots after a grace period for in-flight readers.
       if (previous.key) mirrors.push(source.put(previous.key, JSON.stringify({ version: previous.version, categories: previous.categories, buckets: previous.buckets }), { expirationTtl: 86400 }));
       const results = await Promise.allSettled(mirrors);
