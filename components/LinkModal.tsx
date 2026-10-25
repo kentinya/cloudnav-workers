@@ -651,7 +651,10 @@ const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, onDelete
               {(iconType === 'faviconextractor' || iconType === 'google') && (
                 <div className="flex gap-2">
                   <input
-                    type="url"
+                    type={icon.startsWith('/api/favicon?') ? 'text' : 'url'}
+                    inputMode="url"
+                    pattern="https?://.+|/api/favicon[?].+"
+                    title="请输入完整的 HTTP/HTTPS 图标 URL 或站内图标路径"
                     value={icon}
                     onChange={(e) => setIcon(e.target.value)}
                     className="flex-1 p-2 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
