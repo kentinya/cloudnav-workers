@@ -1,4 +1,4 @@
-# 蜗牛个人导航 (CloudNav)
+# CloudNav-Worker
 
 > [!WARNING]
 > **本项目完全基于 AI 构建，我对项目中的代码一无所知。如果有 Bug 和功能需求请 Fork 后自行处理。**
