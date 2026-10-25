@@ -78,7 +78,7 @@
 
 全程在网页中完成，无需在本地安装 Node.js、pnpm 或 Wrangler：
 
-1. 登录 Cloudflare，在 **R2 Object Storage** 中按提示开通 R2，本项目使用它存储图标、导航版本指针及会话撤销记录。
+1. 登录 Cloudflare，在 **R2 Object Storage** 中按提示开通 R2，本项目使用它存储图标、导航版本指针、设置快照、登录限流及会话撤销记录。
 2. 点击上方按钮，授权 GitHub，并将项目复制到自己的 GitHub 账号。
 3. 在部署页面设置 Worker 名称和管理员密码 **`PASSWORD`**，将示例值替换为自己的密码。
 4. 确认构建命令为 **`pnpm build`**、部署命令为 **`pnpm exec wrangler deploy`**，然后点击 **Deploy**。这些命令由 Cloudflare 执行。
@@ -89,6 +89,8 @@ Cloudflare 会自动创建并绑定 `CLOUDNAV_KV` 和 `CLOUDNAV_R2`。如果部�
 完整的网页操作、手动导入仓库、自定义域名和常见问题见 **[Cloudflare Workers 网页部署教程](docs/workers.md)**。按钮使用 Cloudflare 官方的 [Deploy to Cloudflare](https://developers.cloudflare.com/workers/platform/deploy-buttons/) 流程。
 
 公开首页、私密分类和管理员权限的使用与测试方法见 [访问权限说明](docs/access-control.md)。
+
+设置的批量保存、密码限流和图标安全限制见 [安全与存储说明](docs/security-storage.md)。
 
 ## ⚙️ 环境变量
 

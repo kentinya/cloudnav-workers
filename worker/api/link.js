@@ -19,6 +19,7 @@ export async function onRequest(context) {
   // 认证检查
   const providedPassword = adminToken(request);
   const isAuthenticated = await verifyAuth({
+    request,
     providedPassword,
     serverPassword: env.PASSWORD,
     r2: env.CLOUDNAV_R2,

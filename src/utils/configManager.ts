@@ -1,5 +1,6 @@
 import { AppConfig, WebDavConfig, SearchConfig, IconConfig, AIConfig, WebsiteConfig, TickerConfig, WeatherConfig, ViewMode } from '../../types';
 import { STORAGE_KEYS } from '../constants';
+import { saveConfigSections } from '../../services/configStorage.js';
 
 // 默认配置
 const DEFAULT_APP_CONFIG: AppConfig = {
@@ -242,21 +243,8 @@ class ConfigManager {
       if (this.config.view) sections.view = this.config.view;
       if (this.config.ui) sections.ui = this.config.ui;
 
-      const results = await Promise.all(
-        Object.entries(sections).map(async ([key, config]) => {
-          const res = await fetch('/api/storage', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-auth-password': authToken,
-            },
-            body: JSON.stringify({ saveConfig: key, config }),
-          });
-          return res.ok;
-        })
-      );
-
-      return results.every(Boolean);
+      await saveConfigSections(sections, authToken);
+      return true;
     } catch (error) {
       console.error('同步配置到 KV 出错:', error);
       return false;

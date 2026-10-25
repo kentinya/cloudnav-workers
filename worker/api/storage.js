@@ -3,7 +3,7 @@
 // 支持按分类拆分链接存储
 
 import { getKV, getCorsHeaders, jsonResponse } from './_kvAdapter.js';
-import { readConfigSection, publicConfig } from './_config.js';
+import { readConfigSection, publicConfig, CONFIG_SECTIONS } from './_config.js';
 import { isAdmin, categoryAccess, readCategories, safeCategories, readLinks, prepareCategories, canReadIcon } from './_access.js';
 import { assertBackupNavigation } from '../../services/navigationRules.js';
 
@@ -11,8 +11,6 @@ const STORAGE_KEYS = {
   CONFIG_KEY: 'config',
   CATEGORIES_CONFIG_KEY: 'cate_config',
 };
-
-const CONFIG_SECTIONS = ['ai', 'website', 'mastodon', 'weather', 'search', 'icon', 'view', 'ui'];
 
 async function mergeAllConfigSections(kv) {
   const configStr = await kv.get('config');
@@ -171,7 +169,7 @@ export async function onRequest(context) {
         }
         if (key === STORAGE_KEYS.CONFIG_KEY) {
           const merged = await mergeAllConfigSections(kv);
-          return jsonResponse({ key, value: JSON.stringify(merged) }, 200, corsHeaders);
+          return jsonResponse({ key, value: JSON.stringify(merged), configVersion: await kv.configVersion() }, 200, corsHeaders);
         }
         const value = await kv.get(key);
         return jsonResponse({ key, value }, 200, corsHeaders);
@@ -195,6 +193,18 @@ export async function onRequest(context) {
       const body = writeBody;
       if (!admin) {
         return jsonResponse({ error: '管理操作需要管理员验证' }, 401, corsHeaders);
+      }
+
+      if (body.saveConfig === 'batch') {
+        if (typeof body.configVersion !== 'string') return jsonResponse({ error: '缺少设置版本，请重新打开设置后重试' }, 428, corsHeaders);
+        const sections = body.configs;
+        if (!sections || typeof sections !== 'object' || Array.isArray(sections) || !Object.keys(sections).length ||
+            Object.entries(sections).some(([key, value]) => !CONFIG_SECTIONS.includes(key) || !value || typeof value !== 'object' || Array.isArray(value)) ||
+            body.key || body.links || body.categories || Object.hasOwn(body, 'restore')) {
+          return jsonResponse({ error: '批量设置数据无效' }, 400, corsHeaders);
+        }
+        for (const [key, value] of Object.entries(sections)) await kv.put(`config:${key}`, JSON.stringify(value));
+        return jsonResponse({ success: true }, 200, corsHeaders);
       }
 
       if (Object.hasOwn(body, 'restore')) {
@@ -233,7 +243,7 @@ export async function onRequest(context) {
         return jsonResponse({ success: true }, 200, corsHeaders);
       }
 
-      // 保存子配置（写入独立 KV key，避免读取全量 config）
+      // Legacy single-section clients publish through the same atomic config object.
       if (CONFIG_SECTIONS.includes(body.saveConfig)) {
         await kv.put(`config:${body.saveConfig}`, JSON.stringify(body.config));
         return jsonResponse({ success: true }, 200, corsHeaders);
@@ -293,6 +303,6 @@ export async function onRequest(context) {
 
   } catch (err) {
     if (!err.status) console.error('Storage API error:', err);
-    return jsonResponse({ error: err.status ? err.message : 'Failed to fetch data' }, err.status || 500, corsHeaders);
+    return jsonResponse({ error: err.status ? err.message : 'Failed to fetch data' }, err.status || 500, { ...corsHeaders, ...(err.retryAfter ? { 'Retry-After': String(err.retryAfter) } : {}) });
   }
 }

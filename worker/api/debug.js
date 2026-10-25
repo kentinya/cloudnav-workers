@@ -17,6 +17,7 @@ export async function onRequest(context) {
   const token = url.searchParams.get('token') || adminToken(request);
 
   const isAuthenticated = await verifyAuth({
+    request,
     providedPassword: token,
     serverPassword: env.PASSWORD,
     r2: env.CLOUDNAV_R2,

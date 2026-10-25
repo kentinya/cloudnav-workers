@@ -4,6 +4,7 @@ import { AIConfig, PasswordExpiryConfig, TickerConfig, WeatherConfig, WeatherPro
 import { useAuthContext } from '../src/contexts/AuthContext';
 import { toast } from './Toast';
 import { SEARCH_ENGINES, DEFAULT_ICON_CONFIG } from '../src/constants';
+import { saveConfigSections } from '../services/configStorage.js';
 
 interface SettingsData {
   ai: AIConfig;
@@ -67,6 +68,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [settings, setSettings] = useState<SettingsData>(DEFAULT_SETTINGS);
   const [loadedToken, setLoadedToken] = useState<string | null>(null);
   const loadedConfig = useRef<Record<string, any>>({});
+  const configVersion = useRef<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [migrating, setMigrating] = useState(false);
@@ -74,6 +76,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
   useEffect(() => {
     setLoadedToken(null);
+    configVersion.current = null;
     if (!isOpen || !authToken) return;
     let cancelled = false;
     const fetchSettings = async () => {
@@ -91,6 +94,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           const appConfig = JSON.parse(data.value);
           if (!appConfig || typeof appConfig !== 'object' || Array.isArray(appConfig)) throw new Error('云端设置格式无效');
           loadedConfig.current = appConfig;
+          if (typeof data.configVersion !== 'string') throw new Error('缺少设置版本');
+          configVersion.current = data.configVersion;
           
           // Ensure providers map exists
           const aiConfig = appConfig.ai || DEFAULT_SETTINGS.ai;
@@ -169,27 +174,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         view: { ...loadedConfig.current.view, defaultMode: finalSettings.defaultViewMode },
       };
 
-      const results = await Promise.all(
-        Object.entries(sections).map(async ([key, config]) => {
-          const res = await fetch('/api/storage', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-auth-password': authToken },
-            body: JSON.stringify({ saveConfig: key, config }),
-          });
-          return { key, ok: res.ok, error: res.ok ? null : ((await res.json().catch(() => ({}))).error || res.statusText) };
-        })
-      );
-
-      const errors = results.filter(r => !r.ok).map(r => `${r.key}: ${r.error}`);
-      if (errors.length > 0) {
-        console.error('Settings save partial errors:', errors);
-        toast.error(`部分设置保存失败: ${errors.join('; ')}`);
-      } else {
-        setSettings(finalSettings);
-        onSettingsLoaded(finalSettings);
-        toast.success('设置已保存');
-        onClose();
-      }
+      configVersion.current = await saveConfigSections(sections, authToken, configVersion.current);
+      setSettings(finalSettings);
+      onSettingsLoaded(finalSettings);
+      toast.success('设置已保存');
+      onClose();
     } catch (e) { console.error('Settings save error:', e); toast.error(`保存失败: ${e instanceof Error ? e.message : '未知错误'}`); } finally { setSaving(false); }
   };
 

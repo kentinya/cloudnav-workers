@@ -1,21 +1,9 @@
 import { adminToken } from './_access.js';
 import { getKV, getCorsHeaders, verifyAuth, jsonResponse } from './_kvAdapter.js';
 
-const UPSTREAM_PROVIDERS = [
-  (domain) => `https://www.google.com/s2/favicons?domain=${domain}&sz=64`,
-  (domain) => `https://www.faviconextractor.com/favicon/${domain}?larger=true`,
-];
+import { fetchIcon, faviconSources } from './_icons.js';
 
 const CONCURRENCY = 3;
-
-function detectMimeType(arrayBuffer) {
-  const uint8 = new Uint8Array(arrayBuffer);
-  if (uint8.length >= 8 && uint8[0] === 0x89 && uint8[1] === 0x50 && uint8[2] === 0x4E && uint8[3] === 0x47) return 'image/png';
-  if (uint8.length >= 2 && uint8[0] === 0xFF && uint8[1] === 0xD8) return 'image/jpeg';
-  if (uint8.length >= 4 && uint8[0] === 0x47 && uint8[1] === 0x49 && uint8[2] === 0x46 && uint8[3] === 0x38) return 'image/gif';
-  if (uint8.length >= 4 && uint8[0] === 0x00 && uint8[1] === 0x00 && uint8[2] === 0x01 && uint8[3] === 0x00) return 'image/x-icon';
-  return 'image/png';
-}
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -32,6 +20,7 @@ export async function onRequest(context) {
   const providedPassword = adminToken(request);
   const kv = getKV(env);
   const isAuthenticated = await verifyAuth({
+    request,
     providedPassword,
     serverPassword: env.PASSWORD,
     r2: env.CLOUDNAV_R2,
@@ -91,28 +80,15 @@ export async function onRequest(context) {
       const batch = queue.slice(i, i + CONCURRENCY);
       await Promise.all(batch.map(async ({ catId, link, domain }) => {
         try {
-          let buffer = null;
-          for (const getUrl of UPSTREAM_PROVIDERS) {
-            try {
-              const res = await fetch(getUrl(domain), {
-                headers: { 'User-Agent': 'Mozilla/5.0' }
-              });
-              if (res.ok) {
-                buffer = await res.arrayBuffer();
-                if (buffer.byteLength > 0) break;
-              }
-            } catch (e) {}
+          let icon;
+          for (const source of faviconSources(domain)) {
+            try { icon = await fetchIcon(source, { headers: { 'User-Agent': 'Mozilla/5.0' } }); break; }
+            catch { /* Try the other provider. */ }
           }
-
-          if (!buffer) {
-            failed++;
-            return;
-          }
-
+          if (!icon) { failed++; return; }
           const storageKey = `favicon:${domain}`;
-          const mime = detectMimeType(buffer);
-          await env.CLOUDNAV_R2.put(storageKey, buffer, {
-            httpMetadata: { contentType: mime, cacheControl: 'public, max-age=31536000' }
+          await env.CLOUDNAV_R2.put(storageKey, icon.bytes, {
+            httpMetadata: { contentType: icon.contentType, cacheControl: 'public, max-age=31536000' },
           });
 
           link.icon = `/api/favicon?domain=${encodeURIComponent(domain)}`;

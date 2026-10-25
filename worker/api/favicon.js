@@ -1,46 +1,10 @@
 import { canReadIcon } from './_access.js';
+import { readConfigSection } from './_config.js';
 // Cloudflare R2 图标缓存与代理接口
 
 import { getCorsHeaders, jsonResponse, getKV } from './_kvAdapter.js';
 
-// 外部 Favicon 抓取源（Google API 设置为默认/最高优先级）
-const UPSTREAM_PROVIDERS = [
-  (domain) => `https://www.google.com/s2/favicons?domain=${domain}&sz=64`,
-  (domain) => `https://www.faviconextractor.com/favicon/${domain}?larger=true`,
-];
-
-// 通过文件头魔数识别 MIME 类型
-function detectMimeType(arrayBuffer) {
-  const uint8 = new Uint8Array(arrayBuffer);
-  if (uint8.length >= 8 && uint8[0] === 0x89 && uint8[1] === 0x50 && uint8[2] === 0x4E && uint8[3] === 0x47) {
-    return 'image/png';
-  }
-  if (uint8.length >= 2 && uint8[0] === 0xFF && uint8[1] === 0xD8) {
-    return 'image/jpeg';
-  }
-  if (uint8.length >= 4 && uint8[0] === 0x47 && uint8[1] === 0x49 && uint8[2] === 0x46 && uint8[3] === 0x38) {
-    return 'image/gif';
-  }
-  if (uint8.length >= 4 && uint8[0] === 0x00 && uint8[1] === 0x00 && uint8[2] === 0x01 && uint8[3] === 0x00) {
-    return 'image/x-icon';
-  }
-  if (uint8.length >= 12 &&
-      uint8[0] === 0x52 && uint8[1] === 0x49 && uint8[2] === 0x46 && uint8[3] === 0x46 &&
-      uint8[8] === 0x57 && uint8[9] === 0x45 && uint8[10] === 0x42 && uint8[11] === 0x50) {
-    return 'image/webp';
-  }
-  
-  // 识别 SVG
-  try {
-    const decoder = new TextDecoder('utf-8');
-    const prefix = decoder.decode(uint8.subarray(0, 150)).trim().toLowerCase();
-    if (prefix.includes('<svg') || prefix.includes('<?xml')) {
-      return 'image/svg+xml';
-    }
-  } catch (e) {}
-
-  return 'image/x-icon';
-}
+import { fetchIcon, inspectIcon, faviconSources, ICON_HEADERS, MAX_ICON_BYTES } from './_icons.js';
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -79,27 +43,11 @@ export async function onRequest(context) {
     return new Response('File Not Found', { status: 404, headers: corsHeaders });
   }
 
-  // 读取 KV 缓存配置状态（优先读独立 config:icon key，fallback 到旧 config）
-  let cacheEnabled = true;
-  try {
-    const kv = getKV(env);
-    let iconConfig = null;
-    const iconStr = await kv.get('config:icon');
-    if (iconStr) {
-      iconConfig = JSON.parse(iconStr);
-    } else {
-      const configVal = await kv.get('config');
-      if (configVal) {
-        const config = JSON.parse(configVal);
-        iconConfig = config?.icon || null;
-      }
-    }
-    if (iconConfig && typeof iconConfig.cacheEnabled === 'boolean') {
-      cacheEnabled = iconConfig.cacheEnabled;
-    }
-  } catch (err) {
-    console.warn('Failed to read config from KV:', err);
-  }
+  let sources;
+  try { if (!key) sources = faviconSources(domain); }
+  catch (error) { return jsonResponse({ error: error.message }, error.status || 400, corsHeaders); }
+  const iconConfig = await readConfigSection(getKV(env), 'icon');
+  const cacheEnabled = iconConfig?.cacheEnabled !== false;
 
   const storageKey = key || `favicon:${domain}`;
 
@@ -107,11 +55,18 @@ export async function onRequest(context) {
   try {
     const object = await env.CLOUDNAV_R2?.get(storageKey);
     if (object) {
+      // Older uploads may predate the size limit. Check R2's trusted metadata
+      // before buffering them, so reads cannot exhaust Worker memory either.
+      if (object.size > MAX_ICON_BYTES) {
+        await object.body?.cancel();
+        return jsonResponse({ error: '图片大小不能超过 2MB' }, 413, corsHeaders);
+      }
       const cached = await object.arrayBuffer();
       return new Response(cached, {
         status: 200,
         headers: {
-          'Content-Type': detectMimeType(cached),
+          'Content-Type': inspectIcon(cached).contentType,
+          ...ICON_HEADERS,
           'Cache-Control': 'public, max-age=31536000, immutable',
           ...corsHeaders
         }
@@ -127,44 +82,23 @@ export async function onRequest(context) {
   }
 
   // 2. 如果是 domain 请求且无缓存，则从上游抓取并保存
-  let buffer = null;
-  for (const getUrl of UPSTREAM_PROVIDERS) {
+  let icon;
+  for (const source of sources) {
     try {
-      const res = await fetch(getUrl(domain), {
-        headers: { 'User-Agent': 'Mozilla/5.0' }
-      });
-      if (res.ok) {
-        buffer = await res.arrayBuffer();
-        break;
-      }
-    } catch (e) {
-      console.warn(`Fetch error for ${domain}:`, e);
-    }
+      icon = await fetchIcon(source, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      break;
+    } catch { /* Try the other provider, then the existing local fallback. */ }
   }
-
-  // 3. 抓取成功，按设置缓存到 R2 并返回
-  if (buffer) {
+  if (icon) {
     if (cacheEnabled && env.CLOUDNAV_R2) {
       try {
-        await env.CLOUDNAV_R2.put(storageKey, buffer, {
-          httpMetadata: {
-            contentType: detectMimeType(buffer),
-            cacheControl: 'public, max-age=31536000'
-          }
+        await env.CLOUDNAV_R2.put(storageKey, icon.bytes, {
+          httpMetadata: { contentType: icon.contentType, cacheControl: 'public, max-age=31536000' },
         });
-      } catch (err) {
-        console.error('R2 write error:', err);
-      }
+      } catch (error) { console.error('R2 write error:', error); }
     }
-
-    const mime = detectMimeType(buffer);
-    return new Response(buffer, {
-      status: 200,
-      headers: {
-        'Content-Type': mime,
-        'Cache-Control': 'public, max-age=604800',
-        ...corsHeaders
-      }
+    return new Response(icon.bytes, {
+      headers: { ...corsHeaders, ...ICON_HEADERS, 'Content-Type': icon.contentType, 'Cache-Control': 'public, max-age=604800' },
     });
   }
 

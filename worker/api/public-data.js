@@ -1,6 +1,7 @@
 import { getKV, getCorsHeaders, jsonResponse } from './_kvAdapter.js';
 import { readConfigSection } from './_config.js';
 import { isAdmin, readCategories, categoryAccess, readLinks } from './_access.js';
+import { fetchPublicBytes, fetchIcon, ICON_HEADERS } from './_icons.js';
 
 const options = { redirect: 'error' };
 async function upstream(url, extra = {}) {
@@ -83,18 +84,17 @@ export async function onRequest({ request, env }) {
     if (bookmark) {
       iconURL = bookmark.icon;
     } else if (c.source === 'customapi' && c.customapi?.enabled && c.customapi.url) {
-      const data = await json(webURL(c.customapi.url).href, { method: 'POST', headers: { 'Content-Type': 'application/json', ...c.customapi.headers }, body: JSON.stringify({ url: target }) });
+      const { bytes } = await fetchPublicBytes(c.customapi.url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...c.customapi.headers }, body: JSON.stringify({ url: target }) }, { maxBytes: 64 * 1024 });
+      const data = JSON.parse(new TextDecoder().decode(bytes));
       iconURL = data.iconUrl || data.url || data.favicon;
     } else if (c.source === 'customurl' && c.customurl?.enabled && c.customurl.url) {
       iconURL = c.customurl.url.replaceAll('{domain}', new URL(target).hostname).replaceAll('{url}', encodeURIComponent(target));
     } else return jsonResponse({ error: 'Not Found' }, 404, cors);
-    const icon = await upstream(webURL(iconURL).href, { redirect: 'follow' });
-    const type = icon.headers.get('Content-Type') || '';
-    if (!type.startsWith('image/')) throw new Error('Invalid icon');
+    const icon = await fetchIcon(iconURL);
     // Do not redirect: upstream URLs may themselves contain credentials.
-    return new Response(await icon.arrayBuffer(), { headers: { ...cors, 'Content-Type': type, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': 'sandbox' } });
+    return new Response(icon.bytes, { headers: { ...cors, ...ICON_HEADERS, 'Content-Type': icon.contentType } });
   } catch (error) {
     // Never echo credential-bearing URLs, response bodies, or upstream errors.
-    return jsonResponse({ error: error.status ? '数据暂未同步，请稍后重试' : '暂时无法获取组件数据' }, error.status || 502, cors);
+    return jsonResponse({ error: error.status ? '数据暂未同步，请稍后重试' : '暂时无法获取组件数据' }, error.status || 502, { ...cors, ...(error.retryAfter ? { 'Retry-After': String(error.retryAfter) } : {}) });
   }
 }

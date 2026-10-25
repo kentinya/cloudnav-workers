@@ -21,7 +21,7 @@ export function adminToken(request) {
 }
 
 export async function isAdmin(request, env, kv = getKV(env)) {
-  return verifyAuth({ providedPassword: adminToken(request), serverPassword: env.PASSWORD, kv, r2: env.CLOUDNAV_R2 });
+  return verifyAuth({ providedPassword: adminToken(request), serverPassword: env.PASSWORD, kv, r2: env.CLOUDNAV_R2, request });
 }
 
 export function isPrivate(category) {

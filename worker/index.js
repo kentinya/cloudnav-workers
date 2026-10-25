@@ -10,6 +10,7 @@ import { onRequest as webdav } from './api/webdav.js'
 import { onRequest as debug } from './api/debug.js'
 import { navigationTransaction } from './api/_navigation.js'
 import { getCorsHeaders, jsonResponse } from './api/_kvAdapter.js'
+import { configurationTransaction } from './api/_config.js'
 
 // Explicit routes for the Cloudflare Worker API.
 const routes = new Map([
@@ -39,16 +40,19 @@ export default {
         // Stage every navigation writer, including extension adds and icon migration.
         const body = request.method === 'POST' && pathname === '/api/storage' ? await request.clone().json() : {}
         const transaction = env.CLOUDNAV_KV ? await navigationTransaction(env, body.version, pathname === '/api/storage') : null
-        const response = await handler({ request, env: transaction ? { ...env, CLOUDNAV_KV: transaction.kv } : env })
+        const configuration = transaction ? configurationTransaction({ ...env, CLOUDNAV_KV: transaction.kv }, body.configVersion) : null
+        const response = await handler({ request, env: configuration ? { ...env, CLOUDNAV_KV: configuration.kv } : env })
         if (response.ok) await transaction?.commit()
+        if (response.ok) await configuration?.commit()
         const headers = new Headers(response.headers)
         if (transaction?.committedVersion) headers.set('X-Navigation-Version', transaction.committedVersion)
+        if (configuration?.committedVersion) headers.set('X-Config-Version', configuration.committedVersion)
         headers.set('Cache-Control', 'private, no-store')
         headers.set('Vary', 'Cookie, x-auth-password')
         return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
       } catch (error) {
         if (!error.status) console.error('Worker API error:', error)
-        return jsonResponse({ error: error.status ? error.message : 'Internal Server Error' }, error.status || 500, { ...getCorsHeaders(env), 'Cache-Control': 'private, no-store' })
+        return jsonResponse({ error: error.status ? error.message : 'Internal Server Error' }, error.status || 500, { ...getCorsHeaders(env), 'Cache-Control': 'private, no-store', ...(error.retryAfter ? { 'Retry-After': String(error.retryAfter) } : {}) })
       }
     }
 

@@ -4,6 +4,7 @@ import { saveSession, revokeSession } from './_sessions.js';
 
 import { getKV, getCorsHeaders, jsonResponse } from './_kvAdapter.js';
 import { cookies, sessionCookie } from './_access.js';
+import { consumeAuthAttempt, passwordMatches } from './_rateLimit.js';
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -32,7 +33,8 @@ export async function onRequest(context) {
       return jsonResponse({ error: '服务器未配置管理员密码' }, 500, corsHeaders);
     }
 
-    if (password !== env.PASSWORD) {
+    await consumeAuthAttempt(env.CLOUDNAV_R2, request, 'admin');
+    if (!await passwordMatches(password, env.PASSWORD)) {
       return jsonResponse({ error: '密码错误' }, 401, corsHeaders);
     }
 
@@ -72,8 +74,8 @@ export async function onRequest(context) {
     }, 200, { ...corsHeaders, 'Set-Cookie': sessionCookie(request, 'cloudnav_admin', token, expirationTtl || 365 * 24 * 60 * 60) });
 
   } catch (err) {
-    console.error('Auth API error:', err);
-    return jsonResponse({ error: '认证请求失败' }, 500, corsHeaders);
+    if (!err.status) console.error('Auth API error:', err);
+    return jsonResponse({ error: err.status ? err.message : '认证请求失败' }, err.status || 500, { ...corsHeaders, ...(err.retryAfter ? { 'Retry-After': String(err.retryAfter) } : {}) });
   }
 }
 

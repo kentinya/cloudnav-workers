@@ -1,78 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import worker from './index.js'
+import { promises as dns } from 'node:dns'
+import { createEnv, request, login } from './testUtils.js'
 
-function createEnv(onWrite = () => {}) {
-  const values = new Map()
-  const objects = new Map()
-  return {
-    PASSWORD: 'local-test-password',
-    CLOUDNAV_KV: {
-      async get(key) {
-        return values.get(key) ?? null
-      },
-      async put(key, value, options) {
-        onWrite('put', key, value, options)
-        values.set(key, value)
-      },
-      async delete(key) {
-        onWrite('delete', key)
-        values.delete(key)
-      },
-    },
-    CLOUDNAV_R2: {
-      async put(key, value, options = {}) {
-        const existing = objects.get(key)
-        const condition = options.onlyIf
-        const matches = condition instanceof Headers ? condition.get('If-Match') : condition?.etagMatches
-        const absent = condition instanceof Headers ? condition.get('If-None-Match') === '*' : condition?.etagDoesNotMatch === '*'
-        if ((matches && existing?.etag !== matches) || (absent && existing)) return null
-        const object = { value, etag: crypto.randomUUID() }
-        objects.set(key, object)
-        return { etag: object.etag }
-      },
-      async get(key) {
-        const object = objects.get(key)
-        return object ? {
-          etag: object.etag,
-          json: async () => JSON.parse(object.value),
-          arrayBuffer: async () => typeof object.value === 'string' ? new TextEncoder().encode(object.value).buffer : object.value,
-        } : null
-      },
-      async delete(key) {
-        objects.delete(key)
-      },
-    },
-    ASSETS: { fetch: async () => new Response('static asset') },
-  }
-}
-
-async function request(env, path, { data, token, method = data ? 'POST' : 'GET', headers = {}, unversioned = false } = {}) {
-  // Existing API scenarios explicitly load the revision before editing. Conflict
-  // scenarios below supply their own (possibly old/missing) revision.
-  if (!unversioned && data && path === '/api/storage' && (data.links || data.categories || data.key === 'cate_config' || data.key?.startsWith('links:')) && data.version === undefined) {
-    const snapshot = await (await request(env, '/api/storage?getConfig=true&admin=true', { token, headers })).json()
-    data = { ...data, version: snapshot.version }
-  }
-  if (data) headers['Content-Type'] = 'application/json'
-  if (token) headers['x-auth-password'] = token
-  return worker.fetch(
-    new Request(`https://cloudnav.example${path}`, {
-      method,
-      headers,
-      body: data ? JSON.stringify(data) : undefined,
-    }),
-    env
-  )
-}
-
-async function login(env) {
-  const response = await request(env, '/api/auth', { data: { password: env.PASSWORD } })
-  assert.equal(response.status, 200)
-  const result = await response.json()
-  assert.match(result.token, /^[0-9a-f]{64}$/)
-  return result.token
-}
+// Deterministic public DNS for mocked network responses; SSRF cases override it.
+test.beforeEach(t => {
+  t.mock.method(dns, 'resolve4', async () => ['93.184.216.34'])
+  t.mock.method(dns, 'resolve6', async () => [])
+})
 
 test('every public API handles preflight, including icon deletion', async () => {
   const env = createEnv()
@@ -238,7 +174,7 @@ test('missing R2 bindings fail explicitly instead of reporting successful icon d
   const token = await login(env)
   delete env.CLOUDNAV_R2
   const response = await request(env, '/api/upload?key=icon.png', { method: 'DELETE', token: env.PASSWORD })
-  assert.equal(response.status, 500)
+  assert.equal(response.status, 503)
   assert.match((await response.json()).error, /CLOUDNAV_R2/)
 })
 
@@ -314,7 +250,7 @@ test('category grants unlock only that category and public descendants, never ad
   assert.equal((await request(env, '/api/storage?getConfig=links&category=b', { headers })).status, 403)
   const categoryToken = cookie.split('=')[1]
   for (const path of ['/api/storage', '/api/link', '/api/upload', '/api/migrate-icons', '/api/webdav']) {
-    const response = await request(env, path, { headers, token: categoryToken, data: { categories: [], saveConfig: 'favicon', domain: 'x', icon: 'x' } })
+    const response = await request(env, path, { headers, token: categoryToken, data: { categories: [], saveConfig: 'favicon', domain: 'x', icon: 'x' }, unversioned: true })
     assert.equal(response.status, 401, path)
   }
   assert.equal((await request(env, '/api/debug', { headers, token: categoryToken })).status, 401)
@@ -567,7 +503,7 @@ test('icon proxy keeps credentials server-side and refuses access to locked book
   const bytes = new Uint8Array([0, 0, 1, 0])
   const upstream = t.mock.method(globalThis, 'fetch', async (url, options) => {
     if (String(url) === 'https://icons.example/') {
-      assert.equal(options.headers.Authorization, 'icon-secret')
+      assert.equal(new Headers(options.headers).get('Authorization'), 'icon-secret')
       assert.deepEqual(JSON.parse(options.body), { url: 'https://common.example/' })
       return Response.json({ iconUrl: 'https://images.example/icon?token=icon-secret' })
     }

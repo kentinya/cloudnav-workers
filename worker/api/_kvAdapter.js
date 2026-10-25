@@ -1,4 +1,5 @@
 import { verifySession } from './_sessions.js';
+import { consumeAuthAttempt, passwordMatches } from './_rateLimit.js';
 // Cloudflare Workers KV 与 API 辅助函数
 
 /**
@@ -25,7 +26,7 @@ export function getCorsHeaders(env) {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, x-auth-password',
-    'Access-Control-Expose-Headers': 'X-Navigation-Version',
+    'Access-Control-Expose-Headers': 'X-Navigation-Version, X-Config-Version, Retry-After',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -38,25 +39,16 @@ export function getCorsHeaders(env) {
  * @param {object} params.kv - KV 实例
  * @returns {Promise<boolean>}
  */
-export async function verifyAuth({ providedPassword, serverPassword, kv, r2 }) {
+export async function verifyAuth({ providedPassword, serverPassword, kv, r2, request }) {
   if (!serverPassword || !providedPassword) return false;
-
-  // 直接匹配密码
-  if (serverPassword && providedPassword === serverPassword) {
-    return true;
+  if (/^[0-9a-f]{64}$/i.test(providedPassword)) {
+    // Valid sessions do not spend password-guessing budget.
+    try { if (await verifySession(r2, providedPassword, kv)) return true; } catch { return false; }
   }
-
-  // 防御性校验：如果不是合法的 Token 格式 (32字节随机 hex 字符，长度为 64)，直接拦截
-  if (providedPassword.length !== 64 || !/^[0-9a-f]{64}$/i.test(providedPassword)) {
-    return false;
-  }
-
-  // R2 会话/撤销记录优先于旧 KV Token，避免 KV 延迟复活已退出会话
-  try {
-    return await verifySession(r2, providedPassword, kv);
-  } catch {
-    return false;
-  }
+  if (providedPassword === 'public') return false;
+  // Legacy extension/header password authentication must not bypass login limits.
+  await consumeAuthAttempt(r2, request, 'admin');
+  return passwordMatches(providedPassword, serverPassword);
 }
 
 /**
