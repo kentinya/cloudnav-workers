@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, ArrowUp, ArrowDown, Trash2, Edit2, Plus, Check, Lock, Unlock, Palette, Save } from 'lucide-react';
-import { Category } from '../types';
+import { Category, LinkItem } from '../types';
+import { assertCategoryDeletionAllowed } from '../services/navigationRules.js';
 import Icon from './Icon';
 import IconSelector from './IconSelector';
 import { toast } from './Toast';
@@ -10,6 +11,7 @@ interface CategoryManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
   categories: Category[];
+  links: LinkItem[];
   onUpdateCategories: (newCategories: Category[]) => void | Promise<void>;
   onDeleteCategory: (id: string) => void;
   onVerifyPassword?: (password: string) => Promise<boolean>;
@@ -19,6 +21,7 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   isOpen,
   onClose,
   categories,
+  links,
   onUpdateCategories,
   onDeleteCategory,
   onVerifyPassword
@@ -171,12 +174,25 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     setIsAuthModalOpen(true);
   };
 
+  const deleteLocalCategory = (cat: Category) => {
+    const newCats = localCategories.filter(c => c.id !== cat.id);
+    try {
+      assertCategoryDeletionAllowed(localCategories, newCats, links);
+      if (confirm(`确定删除"${cat.name}"分类吗？`)) markChanged(newCats);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '删除分类失败');
+    }
+  };
+
   const handleDeleteClick = (cat: Category) => {
+    try {
+      assertCategoryDeletionAllowed(localCategories, localCategories.filter(c => c.id !== cat.id), links);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '删除分类失败');
+      return;
+    }
     if (!onVerifyPassword || hasVerifiedPermissions) {
-      if (confirm(`确定删除"${cat.name}"分类吗？该分类下的书签将移动到"常用推荐"，并使用其公开/私密权限。`)) {
-        const newCats = localCategories.filter(c => c.id !== cat.id);
-        markChanged(newCats);
-      }
+      deleteLocalCategory(cat);
       return;
     }
     setPendingAction({ type: 'delete', categoryId: cat.id, categoryName: cat.name });
@@ -192,9 +208,7 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
       if (cat) startEdit(cat);
     } else if (pendingAction.type === 'delete') {
       const cat = localCategories.find(c => c.id === pendingAction.categoryId);
-      if (cat && confirm(`确定删除"${cat.name}"分类吗？该分类下的书签将移动到"常用推荐"，并使用其公开/私密权限。`)) {
-        markChanged(localCategories.filter(c => c.id !== cat.id));
-      }
+      if (cat) deleteLocalCategory(cat);
     }
     setPendingAction(null);
   };

@@ -4,6 +4,7 @@ import { STORAGE_KEYS, API_ENDPOINTS } from '../constants';
 import { useAuthContext } from './AuthContext';
 import { useLinksContext } from './LinksContext';
 import { cachePublicNavigation } from '../utils/navigationCache';
+import { assertCategoryDeletionAllowed } from '../../services/navigationRules.js';
 
 // --- Types ---
 interface CategoriesState {
@@ -89,7 +90,7 @@ export function CategoriesProvider({ children }: { children: React.ReactNode }) 
   });
 
   const { authToken } = useAuthContext();
-  const { initLinks, isReadyToSave, saveNavigation } = useLinksContext();
+  const { links: currentLinks, initLinks, isReadyToSave, saveNavigation } = useLinksContext();
   const activeAuth = useRef(authToken);
   activeAuth.current = authToken;
 
@@ -106,8 +107,9 @@ export function CategoriesProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const deleteCategory = useCallback((id: string) => {
+    assertCategoryDeletionAllowed(state.categories, state.categories.filter(category => category.id !== id), currentLinks);
     dispatch({ type: 'DELETE_CATEGORY', payload: id });
-  }, []);
+  }, [state.categories, currentLinks]);
 
   const reloadNavigation = useCallback(async () => {
     const response = await fetch(`${API_ENDPOINTS.STORAGE}?getConfig=true${authToken ? '&admin=true' : ''}`, { headers: { 'x-auth-password': authToken || 'public' } });
@@ -138,9 +140,10 @@ export function CategoriesProvider({ children }: { children: React.ReactNode }) 
   const setCategoriesAndSync = useCallback(async (categories: Category[], links: LinkItem[]) => {
     if (!authToken) throw new Error('请先登录管理员');
     if (!isReadyToSave()) throw new Error('管理员完整数据尚未加载，请刷新后重试');
+    assertCategoryDeletionAllowed(state.categories, categories, currentLinks);
     await saveNavigation({ categories });
     await reloadNavigation();
-  }, [authToken, reloadNavigation, isReadyToSave, saveNavigation]);
+  }, [authToken, reloadNavigation, isReadyToSave, saveNavigation, state.categories, currentLinks]);
 
   const categoryTree = useMemo(() => buildCategoryTree(state.categories), [state.categories]);
 

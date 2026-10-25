@@ -5,6 +5,7 @@ import { STORAGE_KEYS, API_ENDPOINTS } from '../constants';
 import { useAuthContext } from './AuthContext';
 import { cachePublicNavigation } from '../utils/navigationCache';
 import { toast } from '../../components/Toast';
+import { assertBackupNavigation } from '../../services/navigationRules.js';
 
 // --- Types ---
 interface LinksState {
@@ -22,7 +23,8 @@ type LinksAction =
 
 interface LinksContextValue extends LinksState {
   initLinks: (links: LinkItem[], verifiedToken?: string, version?: string) => void;
-  saveNavigation: (body: { links?: LinkItem[]; categories?: Category[] }) => Promise<void>;
+  saveNavigation: (body: { links?: LinkItem[]; categories?: Category[]; restore?: true }) => Promise<void>;
+  restoreNavigation: (links: LinkItem[], categories: Category[]) => Promise<void>;
   isReadyToSave: () => boolean;
   addLink: (data: Omit<LinkItem, 'id' | 'createdAt'>) => void;
   updateLink: (link: LinkItem) => void;
@@ -91,7 +93,7 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // One version stream is shared by bookmark, category, import and restore writes.
-  const saveNavigation = useCallback(async (body: { links?: LinkItem[]; categories?: Category[] }) => {
+  const saveNavigation = useCallback(async (body: { links?: LinkItem[]; categories?: Category[]; restore?: true }) => {
     if (!isReadyToSave()) throw new Error('管理员完整数据尚未加载，请刷新后重试');
     if (saving.current) throw new Error('正在保存，请稍后再操作');
     saving.current = true;
@@ -164,6 +166,16 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
     }
   }, [saveNavigation, authToken]);
 
+  const restoreNavigation = useCallback(async (links: LinkItem[], categories: Category[]) => {
+    assertBackupNavigation(links, categories);
+    const normalized = links.map(normalizeLinkIcon) as LinkItem[];
+    await saveNavigation({ links: normalized, categories, restore: true });
+    if (activeAuth.current === authToken) {
+      dispatch({ type: 'SET_LINKS', payload: normalized });
+      cachePublicNavigation(normalized, categories);
+    }
+  }, [saveNavigation, authToken]);
+
   // 置顶链接
   const pinnedLinks = useMemo(() =>
     state.links
@@ -188,7 +200,7 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
   return (
     <LinksContext.Provider value={{
       ...state,
-      initLinks, isReadyToSave, saveNavigation,
+      initLinks, isReadyToSave, saveNavigation, restoreNavigation,
       addLink, updateLink, deleteLink, deleteLinks,
       updateLinks, setLinksAndSync, pinnedLinks, getLinksByCategory,
     }}>

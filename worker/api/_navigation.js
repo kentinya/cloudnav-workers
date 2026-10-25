@@ -1,5 +1,7 @@
 // KV has no compare-and-swap. R2 atomically publishes a pointer to an immutable KV
 // snapshot; readers never pair a fresh revision with stale, mutable KV buckets.
+import { assertBackupNavigation, assertCategoryDeletionAllowed } from '../../services/navigationRules.js';
+
 export const NAVIGATION_HEAD = '__cloudnav/navigation-head';
 const SNAPSHOT_PREFIX = 'navigation_snapshot:';
 
@@ -13,6 +15,7 @@ export async function navigationTransaction(env, expectedVersion, requireVersion
   const staged = new Map();
   let version;
   let committed = false;
+  let replacement;
   const load = () => loaded ||= (async () => {
     if (!env.CLOUDNAV_R2) throw failure('缺少 CLOUDNAV_R2，无法安全校验导航版本', 503);
     const head = await env.CLOUDNAV_R2.get(NAVIGATION_HEAD);
@@ -51,33 +54,35 @@ export async function navigationTransaction(env, expectedVersion, requireVersion
       staged.set(key, null);
     },
     async navigationVersion() { await load(); return version; },
+    async replaceNavigation(categories, links) {
+      assertBackupNavigation(links, categories);
+      await load();
+      replacement = { categories, buckets: Object.fromEntries(categories.map(category => [category.id, links.filter(link => link.categoryId === category.id)])) };
+    },
   };
   return {
     kv,
     async commit() {
-      if (!staged.size) return;
+      if (!staged.size && !replacement) return;
       const previous = await load();
       if (requireVersion && typeof expectedVersion !== 'string') throw failure('缺少导航版本，请刷新后重试', 428);
       if (expectedVersion !== undefined && expectedVersion !== previous.version) throw failure('导航已被其他操作修改，请刷新后重试', 409);
-      let categories = staged.has('cate_config') ? JSON.parse(staged.get('cate_config') || '[]') : previous.categories;
-      const buckets = { ...previous.buckets };
+      let categories = replacement ? replacement.categories : staged.has('cate_config') ? JSON.parse(staged.get('cate_config') || '[]') : previous.categories;
+      const buckets = { ...(replacement ? replacement.buckets : previous.buckets) };
       for (const [key, value] of staged) if (key.startsWith('links:')) buckets[key.slice(6)] = JSON.parse(value || '[]');
       const retained = new Set(categories.map(c => c.id));
       const removed = previous.categories.filter(c => !retained.has(c.id));
-      // A category-only delete must move its old bookmarks in the SAME snapshot.
-      // Never trust an omitted/emptied client bucket as evidence to discard them.
-      const moved = removed.flatMap(c => previous.buckets[c.id] || []);
+      // Check the committed snapshot, never a client-supplied empty/moved bucket.
+      // Only an explicitly validated backup replacement may discard old data.
+      if (!replacement) assertCategoryDeletionAllowed(previous.categories, categories,
+        Object.entries(previous.buckets).flatMap(([id, links]) => links.map(link => ({ ...link, categoryId: id }))));
       for (const category of removed) delete buckets[category.id];
-      if (moved.length) {
-        const oldIds = new Set(moved.map(link => link.id));
-        for (const id of Object.keys(buckets)) buckets[id] = buckets[id].filter(link => !oldIds.has(link.id));
-        buckets.common = [...(buckets.common || []), ...moved.map(link => ({ ...link, categoryId: 'common' }))];
-      }
-      if ((buckets.common || []).length && !retained.has('common')) {
+      if (!replacement && !previous.categories.length && !categories.length && (buckets.common || []).length) {
         categories = [{ id: 'common', name: '常用推荐', icon: 'Star', visibility: 'public' }, ...categories];
       }
       const ids = new Set(categories.map(c => c.id));
       for (const [id, links] of Object.entries(buckets)) {
+        if (!Array.isArray(links) || links.some(link => !link || (link.categoryId && link.categoryId !== id))) throw failure('书签分类数据无效', 400);
         if (links.length && !ids.has(id)) throw failure('书签目标分类不存在', 400);
       }
       const next = { version: crypto.randomUUID(), categories, buckets };

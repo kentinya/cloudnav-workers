@@ -34,7 +34,7 @@
     "build": "vite build",
     "deploy": "pnpm build && wrangler deploy",
     "deploy:dry-run": "pnpm build && wrangler deploy --dry-run",
-    "test:worker": "node --test worker/index.test.js services/iconStorage.test.js",
+    "test:worker": "node --test worker/index.test.js services/iconStorage.test.js services/navigationRules.test.js services/backupRestore.test.js",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --ext ts,tsx --fix",

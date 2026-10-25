@@ -354,7 +354,7 @@ test('passwords are hashed, blank edits preserve them, changes revoke grants, an
 
   const restored = createEnv()
   const restoreToken = await login(restored)
-  assert.equal((await request(restored, '/api/storage', { token: restoreToken, data: { links: adminData.links, categories: adminData.categories } })).status, 200)
+  assert.equal((await request(restored, '/api/storage', { token: restoreToken, data: { restore: true, links: adminData.links, categories: adminData.categories } })).status, 200)
   await unlock(restored, 'b', 'beta-password')
   assert.equal((await request(restored, '/api/storage', {
     token: restoreToken, data: { categories: [{ id: 'empty', name: 'Private', visibility: 'private' }] },
@@ -684,14 +684,38 @@ test('logout revokes both header/cookie tokens despite stale KV and fails closed
   assert.equal(failed.headers.get('Set-Cookie'), null)
 })
 
-test('category deletion atomically migrates bookmarks, reparents children, and preserves inherited privacy', async () => {
+test('nonempty category deletion cannot be bypassed through structured, raw or combined writes', async () => {
+  const { env, token } = await privacyFixture()
+  const snapshot = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  for (const id of ['common', 'a', 'b', 'child', 'nested']) {
+    const categories = snapshot.categories.filter(category => category.id !== id)
+    const without = snapshot.links.filter(link => link.categoryId !== id)
+    const moved = snapshot.links.map(link => link.categoryId === id ? { ...link, categoryId: id === 'common' ? 'b' : 'common' } : link)
+    for (const data of [
+      { categories }, { saveConfig: 'categories', categories },
+      { key: 'cate_config', value: JSON.stringify(categories) },
+      { categories, links: [] }, { categories, links: without }, { categories, links: moved },
+    ]) {
+      const response = await request(env, '/api/storage', { token, data: { ...data, version: snapshot.version } })
+      assert.equal(response.status, 400)
+      assert.match((await response.json()).error, /请先手动移动或删除书签/)
+      assert.equal(response.headers.get('X-Navigation-Version'), null)
+    }
+  }
+  const saved = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  assert.deepEqual(saved, snapshot)
+  assert.deepEqual((await (await request(env, '/api/storage?getConfig=links')).json()).map(link => link.id), ['bookmark-common'])
+})
+
+test('after manually removing bookmarks an empty parent can be deleted without exposing surviving children', async () => {
   const { env, token, links } = await privacyFixture()
+  const remainingLinks = links.filter(link => link.categoryId !== 'a')
+  assert.equal((await request(env, '/api/storage', { token, data: { links: remainingLinks } })).status, 200)
   const snapshot = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
   const children = snapshot.categories.filter(category => category.id !== 'a')
   assert.equal((await request(env, '/api/storage', { token, data: { categories: children, version: snapshot.version } })).status, 200)
   const saved = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
-  assert.equal(saved.links.length, links.length)
-  assert.equal(saved.links.find(link => link.id === 'bookmark-a').categoryId, 'common')
+  assert.deepEqual(saved.links, remainingLinks)
   assert.equal(saved.categories.find(category => category.id === 'child').parentId, undefined)
   assert.equal(saved.categories.find(category => category.id === 'child').visibility, 'private')
   assert.equal(saved.categories.find(category => category.id === 'nested').visibility, 'private')
@@ -701,6 +725,86 @@ test('category deletion atomically migrates bookmarks, reparents children, and p
   assert.equal((await (await request(env, '/api/storage?getConfig=links&category=child', { headers: { Cookie: cookie } })).json()).length, 1)
   assert.equal((await request(env, '/api/storage', { token, data: { links: snapshot.links, version: snapshot.version } })).status, 409)
   assert.equal(await env.CLOUDNAV_KV.get('links:a'), null)
+})
+
+test('empty public/private categories including common are deletable through every category route', async () => {
+  for (const route of ['structured', 'section', 'raw', 'combined']) {
+    const env = createEnv()
+    const token = await login(env)
+    assert.equal((await request(env, '/api/storage', { token, data: {
+      categories: [{ id: 'common', name: 'Public' }, { id: 'private', name: 'Private', visibility: 'private', password: 'secret' }], links: [],
+    } })).status, 200)
+    const data = route === 'structured' ? { categories: [] }
+      : route === 'section' ? { saveConfig: 'categories', categories: [] }
+      : route === 'raw' ? { key: 'cate_config', value: '[]' } : { links: [], categories: [] }
+    assert.equal((await request(env, '/api/storage', { token, data })).status, 200)
+    const saved = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+    assert.deepEqual(saved.categories, [])
+    assert.deepEqual(saved.links, [])
+  }
+})
+
+test('backup restore replaces every old bucket and uses backup passwords even for existing category IDs', async () => {
+  const { env, token } = await privacyFixture()
+  const donor = createEnv()
+  const donorToken = await login(donor)
+  const links = [{ id: 'backup-only', title: 'Backup private', categoryId: 'a', pinned: true }]
+  await request(donor, '/api/storage', { token: donorToken, data: {
+    categories: [{ id: 'a', name: 'Backup private', visibility: 'private', password: 'backup-password' }], links,
+  } })
+  const backup = await (await request(donor, '/api/storage?getConfig=true&admin=true', { token: donorToken })).json()
+  await env.CLOUDNAV_KV.put('config:website', '{"icp":"unchanged"}')
+  const oldCookie = await unlock(env, 'a', 'alpha-password')
+  assert.equal((await request(env, '/api/storage', { token, data: { restore: true, links: backup.links, categories: backup.categories } })).status, 200)
+  const saved = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  assert.deepEqual(saved.links, links)
+  assert.deepEqual(saved.categories, backup.categories)
+  for (const id of ['common', 'b', 'child', 'nested']) assert.equal(await env.CLOUDNAV_KV.get(`links:${id}`), null)
+  assert.equal(await env.CLOUDNAV_KV.get('config:website'), '{"icp":"unchanged"}')
+  assert.equal((await request(env, '/api/storage?getConfig=links&category=a', { headers: { Cookie: oldCookie } })).status, 403)
+  assert.equal((await request(env, '/api/category-auth', { data: { categoryId: 'a', password: 'alpha-password' } })).status, 401)
+  await unlock(env, 'a', 'backup-password')
+  assert.deepEqual(await (await request(env, '/api/storage?getConfig=links')).json(), [])
+})
+
+test('restoring an empty backup discards all old bookmarks without creating common', async () => {
+  const { env, token } = await privacyFixture()
+  assert.equal((await request(env, '/api/storage', { token, data: { restore: true, links: [], categories: [] } })).status, 200)
+  for (const headers of [{ 'x-auth-password': token }, {}]) {
+    const saved = await (await request(env, '/api/storage?getConfig=true', { headers })).json()
+    assert.deepEqual(saved.links, [])
+    assert.deepEqual(saved.categories, [])
+  }
+  assert.equal(await env.CLOUDNAV_KV.get('links:common'), null)
+})
+
+test('restore requires a self-contained backup, administrator authentication and a current version', async () => {
+  const { env, token } = await privacyFixture()
+  const snapshot = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  const valid = { restore: true, links: [], categories: [] }
+  const invalid = [
+    { restore: true }, { restore: true, categories: [] }, { restore: true, links: [] },
+    { ...valid, restore: 'true' }, { ...valid, restore: false },
+    { ...valid, links: {} }, { ...valid, categories: {} },
+    { ...valid, links: [{ id: 'x', categoryId: 'a' }] },
+    { ...valid, links: [{ id: 'x' }] },
+    { ...valid, categories: [{ id: 'a', name: 'Missing verifier', visibility: 'private' }] },
+    { ...valid, categories: [{ id: 'child', name: 'Old parent', parentId: 'a' }] },
+    { ...valid, categories: [{ id: 'common', name: 'Public' }], links: [{ id: 'x', categoryId: 'a' }] },
+    { ...valid, saveConfig: 'categories' }, { ...valid, saveConfig: 'links', categoryId: 'a' },
+    { ...valid, key: 'cate_config', value: '[]' }, { ...valid, key: 'links:a', value: '[]' },
+  ]
+  for (const data of invalid) {
+    const response = await request(env, '/api/storage', { token, data: { ...data, version: snapshot.version } })
+    assert.equal(response.status, 400, JSON.stringify(data))
+    assert.equal(response.headers.get('X-Navigation-Version'), null)
+  }
+  assert.equal((await request(env, '/api/storage', { data: valid })).status, 401)
+  const cookie = await unlock(env, 'a', 'alpha-password')
+  assert.equal((await request(env, '/api/storage', { headers: { Cookie: cookie }, data: valid })).status, 401)
+  assert.equal((await request(env, '/api/storage', { token, data: valid, unversioned: true })).status, 428)
+  assert.equal((await request(env, '/api/storage', { token, data: { ...valid, version: 'stale-version' } })).status, 409)
+  assert.deepEqual(await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json(), snapshot)
 })
 
 test('public bookmark metadata and favicon configuration do not reveal credential-bearing icon URLs', async t => {

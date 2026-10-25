@@ -1,16 +1,18 @@
-import { normalizeLinkIcon, restoreUploadedIcons, getStoredIconUrls } from '../services/iconStorage.js';
+import { getStoredIconUrls } from '../services/iconStorage.js';
+import { restoreBackup } from '../services/backupRestore.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Cloud, Download, Upload, CheckCircle2, AlertCircle, RefreshCw, Save, FolderUp } from 'lucide-react';
 import { Category, StoredIconBackup, LinkItem, WebDavConfig, SearchConfig, AIConfig } from '../types';
 import { checkWebDavConnection, uploadBackup, downloadBackup } from '../services/webDavService';
 import { generateBookmarkHtml, downloadHtmlFile } from '../services/exportService';
+import { assertBackupNavigation } from '../services/navigationRules.js';
 
 interface BackupModalProps {
   isOpen: boolean;
   onClose: () => void;
   links: LinkItem[];
   categories: Category[];
-  onRestore: (links: LinkItem[], categories: Category[]) => void;
+  onRestore: (links: LinkItem[], categories: Category[]) => Promise<void>;
   webDavConfig: WebDavConfig;
   onSaveWebDavConfig: (config: WebDavConfig) => void;
   searchConfig: SearchConfig;
@@ -122,30 +124,20 @@ const BackupModal: React.FC<BackupModalProps> = ({
     
     setSyncStatus('downloading');
     setStatusMsg('正在下载...');
-    const data = await downloadBackup(config);
-    
-    if (data) {
-        let finalLinks = data.links.map(normalizeLinkIcon);
-        if (data.uploadedIcons && Array.isArray(data.uploadedIcons) && data.uploadedIcons.length > 0) {
-            setStatusMsg('正在还原云端图标文件...');
-            finalLinks = await restoreUploadedIcons(data.uploadedIcons, data.links, (curr, tot) => {
+    try {
+        const data = await downloadBackup(config);
+        if (!data) throw new Error('下载失败或文件格式错误。');
+        await restoreBackup(data, {
+            onRestore, onRestoreSearchConfig, onRestoreAIConfig,
+            onProgress: (curr, tot) => {
                 setStatusMsg(`正在还原图标 (${curr}/${tot})...`);
-            });
-        }
-        onRestore(finalLinks, data.categories);
-        // 恢复搜索配置（如果存在）
-        if (data.searchConfig) {
-            onRestoreSearchConfig(data.searchConfig);
-        }
-        // 恢复AI配置（如果存在）
-        if (data.aiConfig) {
-            onRestoreAIConfig(data.aiConfig);
-        }
+            },
+        });
         setSyncStatus('success');
         setStatusMsg('恢复成功！');
-    } else {
+    } catch (error) {
         setSyncStatus('error');
-        setStatusMsg('下载失败或文件格式错误。');
+        setStatusMsg(error instanceof Error ? error.message : '恢复失败，请重试。');
     }
   };
 
@@ -198,12 +190,7 @@ const BackupModal: React.FC<BackupModalProps> = ({
       try {
         const data = JSON.parse(e.target?.result as string);
 
-        // 验证备份文件基本结构
-        if (!Array.isArray(data.links) || !Array.isArray(data.categories)) {
-          setImportStatus('error');
-          setImportMsg('无效的备份文件：缺少 links 或 categories 数据。');
-          return;
-        }
+        assertBackupNavigation(data.links, data.categories);
 
         if (!confirm(
           `确定要导入备份吗？\n\n` +
@@ -217,32 +204,18 @@ const BackupModal: React.FC<BackupModalProps> = ({
         setImportStatus('idle');
         setImportMsg('正在准备导入...');
         
-        let finalLinks = data.links.map(normalizeLinkIcon);
-        if (data.uploadedIcons && Array.isArray(data.uploadedIcons) && data.uploadedIcons.length > 0) {
-          setImportMsg('正在导入并还原本地图标...');
-          finalLinks = await restoreUploadedIcons(data.uploadedIcons, data.links, (curr, tot) => {
+        await restoreBackup(data, {
+          onRestore, onRestoreSearchConfig, onRestoreAIConfig,
+          onProgress: (curr, tot) => {
             setImportMsg(`正在还原图标 (${curr}/${tot})...`);
-          });
-        }
-
-        // 恢复链接和分类
-        onRestore(finalLinks, data.categories);
-
-        // 恢复搜索配置
-        if (data.searchConfig) {
-          onRestoreSearchConfig(data.searchConfig);
-        }
-
-        // 恢复 AI 配置
-        if (data.aiConfig) {
-          onRestoreAIConfig(data.aiConfig);
-        }
+          },
+        });
 
         setImportStatus('success');
         setImportMsg(`导入成功！已恢复 ${data.links.length} 个链接、${data.categories.length} 个分类以及关联的自定义图标。`);
       } catch (err) {
         setImportStatus('error');
-        setImportMsg('解析备份文件失败，请确认文件格式正确。');
+        setImportMsg(err instanceof Error ? err.message : '恢复失败，请确认文件格式正确。');
       }
 
       // 重置 file input

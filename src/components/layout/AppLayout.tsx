@@ -26,7 +26,7 @@ const QRCodeModal = lazy(() => import('../../../components/QRCodeModal'));
 export function AppLayout() {
   // Contexts
   const { authToken, requiresAuth, isCheckingAuth, capabilities, login, logout } = useAuthContext();
-  const { links = [], addLink, updateLink, deleteLink, deleteLinks, setLinksAndSync } = useLinksContext();
+  const { links = [], addLink, updateLink, deleteLink, deleteLinks, setLinksAndSync, restoreNavigation } = useLinksContext();
   const { categories = [], categoryTree = [], setCategoriesAndSync, unlockedCategoryIds = new Set(), unlockCategory } = useCategoriesContext();
   const { ai: aiConfig, icon: iconConfig, viewMode, showPinnedWebsites, ticker, weather, website, webdav, search, setAI, setIcon, setWebsite, setShowPinned, setMastodon, setWeather, setWebDav, setSearch, setViewMode } = useConfigContext();
 
@@ -477,6 +477,7 @@ export function AppLayout() {
             isOpen={isCatManagerOpen}
             onClose={() => setIsCatManagerOpen(false)}
             categories={categories}
+            links={links}
             onUpdateCategories={(newCats) => setCategoriesAndSync(newCats, links)}
             onDeleteCategory={(id) => {
               const newCats = categories.filter(c => c.id !== id);
@@ -492,7 +493,8 @@ export function AppLayout() {
             links={links}
             categories={categories}
             onRestore={async (newLinks, newCats) => {
-              if (await setLinksAndSync(newLinks, newCats, true)) await initData();
+              await restoreNavigation(newLinks, newCats);
+              await initData();
             }}
             webDavConfig={webdav || { url: '', username: '', password: '', enabled: false }}
             onSaveWebDavConfig={setWebDav}

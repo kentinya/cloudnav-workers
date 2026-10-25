@@ -95,11 +95,8 @@ export function useDataSync() {
 
     if (current !== generation.current || authToken !== activeAuth.current) return false;
     if (cloud) {
-      let cats = cloud.categories;
+      const cats = cloud.categories;
       const visibleLinks = cloud.links;
-      if (!cats.some((c: Category) => c.id === 'common')) {
-        cats = [{ id: 'common', name: '常用推荐', icon: 'Star' }, ...cats];
-      }
       initLinks(visibleLinks, authToken || undefined, cloud.version);
       initCategories(cats);
       cachePublicNavigation(visibleLinks, cats);

@@ -5,6 +5,7 @@
 import { getKV, getCorsHeaders, jsonResponse } from './_kvAdapter.js';
 import { readConfigSection, publicConfig } from './_config.js';
 import { isAdmin, categoryAccess, readCategories, safeCategories, readLinks, prepareCategories, canReadIcon } from './_access.js';
+import { assertBackupNavigation } from '../../services/navigationRules.js';
 
 const STORAGE_KEYS = {
   CONFIG_KEY: 'config',
@@ -194,6 +195,17 @@ export async function onRequest(context) {
       const body = writeBody;
       if (!admin) {
         return jsonResponse({ error: '管理操作需要管理员验证' }, 401, corsHeaders);
+      }
+
+      if (Object.hasOwn(body, 'restore')) {
+        if (body.restore !== true || body.saveConfig || body.key || body.categoryId) {
+          return jsonResponse({ error: '恢复必须提交完整的 links 和 categories，不能与其他写入方式混用' }, 400, corsHeaders);
+        }
+        assertBackupNavigation(body.links, body.categories);
+        // Password verifiers and hierarchy come solely from this backup.
+        const restoredCategories = await prepareCategories(body.categories, []);
+        await kv.replaceNavigation(restoredCategories, body.links);
+        return jsonResponse({ success: true }, 200, corsHeaders);
       }
 
       // Hash new passwords and preserve administrator backup verifiers.
