@@ -17,7 +17,7 @@
   "vars": {
     "UPLOAD_PLATFORM": "cloudflare",
   },
-  // PASSWORD is a secret: pnpm exec wrangler secret put PASSWORD
+  // Set PASSWORD as a runtime Secret in the deployment wizard or Worker Settings.
   "dev": {
     "ip": "127.0.0.1",
     "port": 8788,

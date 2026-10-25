@@ -1,2 +1,4 @@
-# Copy to .dev.vars and replace with your local administrator password.
+# Deploy to Cloudflare reads this file to list the required PASSWORD secret.
+# Replace the example value with your own password on the deployment page.
+# For local development, copy to .dev.vars and set a local password.
 PASSWORD=change-this-local-password
