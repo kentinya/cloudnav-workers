@@ -438,10 +438,10 @@ const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, onDelete
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 dark:border-slate-700">
-        <div className="flex justify-between items-center p-4 border-b border-slate-200 dark:border-slate-700">
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold dark:text-white">
+      <div role="dialog" aria-modal="true" aria-labelledby="link-modal-title" className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
+        <div className="flex shrink-0 justify-between items-start gap-2 p-4 border-b border-slate-200 dark:border-slate-700">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h3 id="link-modal-title" className="text-lg font-semibold dark:text-white">
               {initialData ? '编辑链接' : '添加新链接'}
             </h3>
             <button
@@ -485,12 +485,13 @@ const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, onDelete
               </button>
             )}
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
+          <button onClick={onClose} aria-label="关闭" className="shrink-0 p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
             <X className="w-5 h-5 dark:text-slate-400" />
           </button>
         </div>
 
-        <form onSubmit={handleSave} className="p-4 space-y-4">
+        <form onSubmit={handleSave} className="flex min-h-0 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1 dark:text-slate-300">标题</label>
             <input
@@ -754,7 +755,9 @@ const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, onDelete
             </div>
           )}
 
-          <div className="pt-2 relative">
+          </div>
+
+          <div className="relative shrink-0 border-t border-slate-200 p-4 dark:border-slate-700">
             {/* 成功提示 */}
             {showSuccessMessage && (
               <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 z-10 px-4 py-2 bg-green-500 text-white rounded-lg shadow-lg transition-opacity duration-300">
