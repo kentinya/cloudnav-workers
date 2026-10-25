@@ -138,6 +138,7 @@ pnpm deploy:dry-run   # 本地构建与部署打包验证
 
 ## Inspiration
 
+- [eallion/favorite](https://github.com/eallion/favorite)
 - [CloudNav-abcd](https://github.com/aabacada/CloudNav-abcd)
 
 ## 📄 License
