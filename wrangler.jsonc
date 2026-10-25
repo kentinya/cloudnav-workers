@@ -14,9 +14,6 @@
   // For existing resources, add the KV id and R2 bucket_name here.
   "kv_namespaces": [{ "binding": "CLOUDNAV_KV" }],
   "r2_buckets": [{ "binding": "CLOUDNAV_R2" }],
-  "vars": {
-    "UPLOAD_PLATFORM": "cloudflare",
-  },
   // Set PASSWORD as a runtime Secret in the deployment wizard or Worker Settings.
   "dev": {
     "ip": "127.0.0.1",

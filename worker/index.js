@@ -1,14 +1,14 @@
-import { onRequest as auth } from '../functions/api/auth.js'
-import { onRequest as storage } from '../functions/api/storage.js'
-import { onRequest as link } from '../functions/api/link.js'
-import { onRequest as favicon } from '../functions/api/favicon.js'
-import { onRequest as upload } from '../functions/api/upload.js'
-import { onRequest as migrateIcons } from '../functions/api/migrate-icons.js'
-import { onRequest as webdav } from '../functions/api/webdav.js'
-import { onRequest as debug } from '../functions/api/debug.js'
-import { getCorsHeaders, jsonResponse } from '../functions/api/_kvAdapter.js'
+import { onRequest as auth } from './api/auth.js'
+import { onRequest as storage } from './api/storage.js'
+import { onRequest as link } from './api/link.js'
+import { onRequest as favicon } from './api/favicon.js'
+import { onRequest as upload } from './api/upload.js'
+import { onRequest as migrateIcons } from './api/migrate-icons.js'
+import { onRequest as webdav } from './api/webdav.js'
+import { onRequest as debug } from './api/debug.js'
+import { getCorsHeaders, jsonResponse } from './api/_kvAdapter.js'
 
-// Reuse the existing handlers while replacing Pages' file-based routing.
+// Explicit routes for the Cloudflare Worker API.
 const routes = new Map([
   ['/api/auth', auth],
   ['/api/storage', storage],

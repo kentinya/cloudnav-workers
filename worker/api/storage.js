@@ -1,5 +1,5 @@
 // 统一存储接口
-// 支持 EdgeOne Pages / Cloudflare Workers
+// Cloudflare Workers API
 // 支持按分类拆分链接存储
 
 import { getKV, getCorsHeaders, verifyAuth, jsonResponse } from './_kvAdapter.js';

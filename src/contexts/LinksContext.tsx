@@ -1,3 +1,4 @@
+import { normalizeLinkIcon } from '../../services/iconStorage.js';
 import React, { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
 import { LinkItem, Category } from '../../types';
 import { STORAGE_KEYS, API_ENDPOINTS } from '../constants';
@@ -33,11 +34,11 @@ interface LinksContextValue extends LinksState {
 function linksReducer(state: LinksState, action: LinksAction): LinksState {
   switch (action.type) {
     case 'SET_LINKS':
-      return { ...state, links: action.payload };
+      return { ...state, links: action.payload.map(normalizeLinkIcon) };
     case 'ADD_LINK':
-      return { ...state, links: [action.payload, ...state.links] };
+      return { ...state, links: [normalizeLinkIcon(action.payload), ...state.links] };
     case 'UPDATE_LINK':
-      return { ...state, links: state.links.map(l => l.id === action.payload.id ? action.payload : l) };
+      return { ...state, links: state.links.map(l => l.id === action.payload.id ? normalizeLinkIcon(action.payload) : l) };
     case 'DELETE_LINK':
       return { ...state, links: state.links.filter(l => l.id !== action.payload) };
     case 'DELETE_LINKS':
@@ -129,7 +130,7 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
   // 设置链接并同步（用于 updateData 场景）
   const setLinksAndSync = useCallback((links: LinkItem[], categories: Category[]) => {
     dispatch({ type: 'SET_LINKS', payload: links });
-    persist(links, categories);
+    persist(links.map(normalizeLinkIcon), categories);
   }, [persist]);
 
   // 置顶链接

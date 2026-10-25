@@ -1,5 +1,5 @@
 // 链接添加接口（Chrome 扩展等外部调用）
-// 支持 EdgeOne Pages / Cloudflare Workers
+// Cloudflare Workers API
 
 import { getKV, getCorsHeaders, verifyAuth, jsonResponse } from './_kvAdapter.js';
 

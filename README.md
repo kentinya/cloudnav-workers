@@ -4,7 +4,7 @@
 > **本项目完全基于 AI 构建，我对项目中的代码一无所知。如果有 Bug 和功能需求请 Fork 后自行处理。**
 
 > [!NOTE]
-> **当前推荐部署到 Cloudflare Workers，使用 Workers Static Assets + KV + R2。原有 EdgeOne Pages、Cloudflare Pages 和 Vercel 适配代码仍保留。**
+> **本项目部署到 Cloudflare Workers，使用 Workers Static Assets + KV + R2。**
 
 **一个现代化云端导航 / 书签管理页面。**
 
@@ -18,7 +18,7 @@
 - **KV 按分类存储**：链接按 `links:{category_id}` 拆分存储，读取时自动聚合
 - **Cloudflare Workers 部署**：一个 Worker 同时提供静态页面和 API，使用 KV / R2 存储
 - **KV 云端存储**：数据持久化，localStorage 缓存 + KV 双向同步
-- **图标缓存**：可抓取网站图标并缓存到 EdgeOne Pages Blob / Cloudflare R2
+- **图标缓存**：可抓取网站图标并缓存到 Cloudflare R2
 - **AI 辅助**：集成 Gemini / OpenAI 兼容 API，自动填充链接描述、智能分类建议
 - **数据导入导出**：Chrome 书签 HTML / JSON 备份 / WebDAV 云同步
 - **丰富小组件**：Mastodon / Memos 动态滚动条、实时天气（和风天气）
@@ -46,10 +46,7 @@
 
 #### Serverless / Storage
 
-- **Cloudflare Workers（推荐）**: Workers Static Assets + Workers KV + R2
-- **EdgeOne Pages**: Edge Functions + EdgeOne KV
-- **Cloudflare Pages**: Pages Functions + Cloudflare KV
-- **Vercel**: Vercel Functions + Vercel KV (Upstash Redis)
+- **Cloudflare Workers**: Workers Static Assets + Workers KV + R2
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -64,17 +61,17 @@
 └──────────────────┬───────────────────────────┘
                    │ HTTP API
 ┌──────────────────┴───────────────────────────┐
-│     Cloudflare Workers / Legacy Backend     │
+│     Cloudflare Workers API                   │
 │                                              │
 │  KV 存储：links:{category_id} 按分类拆分     │
 │  认证：安全随机 Token + 自动清理旧 Token     │
-│  平台适配：多平台 KV 接口抽象（屏蔽底层差异）│
+│  数据持久化：Workers KV + Cloudflare R2      │
 └──────────────────────────────────────────────┘
 ```
 
 ## 🚀 部署指南
 
-推荐使用 **Cloudflare Workers**，无须创建 Pages 项目。
+使用 **Cloudflare Workers**，通过 Cloudflare 网页控制台完成部署。
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2Fkentinya%2Fcloudnav-workers)
 
@@ -96,7 +93,6 @@ Cloudflare 会自动创建并绑定 `CLOUDNAV_KV` 和 `CLOUDNAV_R2`。如果部�
 |------|------|------|--------|
 | `PASSWORD` | 管理后台登录密码 | 是 | - |
 | `ALLOWED_ORIGIN` | CORS 允许的域名 | 否 | `*` |
-| `UPLOAD_PLATFORM` | 上传与图标存储平台，Workers 配置中已设为 `cloudflare` | 否 | `cloudflare` |
 
 ## 🛠️ 本地开发
 
@@ -123,10 +119,9 @@ pnpm deploy:dry-run   # 本地构建与部署打包验证
 
 ```
 ├── worker/                    # Cloudflare Workers 入口、API 路由及测试
+│   └── api/                   # Worker API 处理逻辑与 KV 辅助函数
 ├── wrangler.jsonc              # Workers 静态资源、KV / R2 绑定与运行配置
 ├── docs/workers.md             # Workers 开发和部署说明
-├── api/                       # Vercel Serverless Functions (TypeScript)
-├── functions/api/             # EdgeOne / Cloudflare Pages Functions (JavaScript)
 ├── components/                # 通用 UI 组件 (Modal, Toast, ErrorBoundary, 小组件等)
 ├── services/                  # 前端业务逻辑 (AI, 书签解析, 导出, WebDAV 等)
 ├── src/
@@ -138,8 +133,6 @@ pnpm deploy:dry-run   # 本地构建与部署打包验证
 ├── public/                    # 静态资源
 ├── App.tsx                    # 应用入口
 ├── types.ts                   # 类型定义 & 初始数据
-├── vercel.json                # Vercel 部署配置
-├── edgeone.json               # EdgeOne Pages 配置
 └── package.json               # 项目依赖
 ```
 

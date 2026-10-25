@@ -7,7 +7,6 @@ function createEnv() {
   const objects = new Map()
   return {
     PASSWORD: 'local-test-password',
-    UPLOAD_PLATFORM: 'cloudflare',
     CLOUDNAV_KV: {
       async get(key) {
         return values.get(key) ?? null
@@ -131,7 +130,6 @@ test('uploaded icons can be read and deleted through the R2 routes', async () =>
   const data = new FormData()
   data.set('file', new File([bytes], 'test.png', { type: 'image/png' }))
   data.set('categoryName', 'test')
-  data.set('platform', 'cloudflare')
   const upload = await worker.fetch(
     new Request('https://cloudnav.example/api/upload', {
       method: 'POST',
@@ -149,7 +147,7 @@ test('uploaded icons can be read and deleted through the R2 routes', async () =>
   const key = new URL(url, 'https://cloudnav.example').searchParams.get('key')
   const deletion = await request(
     env,
-    `/api/upload?key=${encodeURIComponent(key)}&platform=cloudflare`,
+    `/api/upload?key=${encodeURIComponent(key)}`,
     {
       method: 'DELETE',
       token,
@@ -175,4 +173,47 @@ test('uncaught handler failures return a JSON error without exposing the excepti
   const response = await request({}, '/api/debug')
   assert.equal(response.status, 500)
   assert.deepEqual(await response.json(), { error: 'Internal Server Error' })
+})
+
+test('domain icons use R2 caching and respect the cache setting', async t => {
+  const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  const upstream = t.mock.method(globalThis, 'fetch', async () => new Response(bytes))
+  const env = createEnv()
+  const first = await request(env, '/api/favicon?domain=example.com')
+  assert.deepEqual(new Uint8Array(await first.arrayBuffer()), bytes)
+  const second = await request(env, '/api/favicon?domain=example.com')
+  assert.equal(second.status, 200)
+  assert.equal(upstream.mock.callCount(), 1)
+  assert.ok(await env.CLOUDNAV_R2.get('favicon:example.com'))
+
+  await env.CLOUDNAV_KV.put('config:icon', JSON.stringify({ cacheEnabled: false }))
+  assert.equal((await request(env, '/api/favicon?domain=uncached.example')).status, 200)
+  assert.equal(await env.CLOUDNAV_R2.get('favicon:uncached.example'), null)
+})
+
+test('bulk icon caching saves files to R2 and persists the new bookmark URLs', async t => {
+  const env = createEnv()
+  const token = await login(env)
+  await env.CLOUDNAV_KV.put('cate_config', JSON.stringify([{ id: 'common' }]))
+  await env.CLOUDNAV_KV.put('links:common', JSON.stringify([
+    { id: 'remote', url: 'https://example.com' },
+    { id: 'uploaded', url: 'https://upload.example', icon: '/api/favicon?key=custom.png', iconType: 'upload-cloudflare' },
+  ]))
+  const upstream = t.mock.method(globalThis, 'fetch', async () => new Response(new Uint8Array([0, 0, 1, 0])))
+  const response = await request(env, '/api/migrate-icons', { method: 'POST', token })
+  assert.deepEqual(await response.json(), { total: 2, cached: 1, failed: 0, skipped: 1 })
+  assert.equal(upstream.mock.callCount(), 1)
+  assert.ok(await env.CLOUDNAV_R2.get('favicon:example.com'))
+  const links = JSON.parse(await env.CLOUDNAV_KV.get('links:common'))
+  assert.equal(links[0].icon, '/api/favicon?domain=example.com')
+  assert.equal(links[1].icon, '/api/favicon?key=custom.png')
+})
+
+test('missing R2 bindings fail explicitly instead of reporting successful icon deletion', async () => {
+  const env = createEnv()
+  delete env.CLOUDNAV_R2
+  const token = await login(env)
+  const response = await request(env, '/api/upload?key=icon.png', { method: 'DELETE', token })
+  assert.equal(response.status, 500)
+  assert.match((await response.json()).error, /CLOUDNAV_R2/)
 })

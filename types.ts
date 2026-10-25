@@ -13,8 +13,21 @@ export interface LinkItem {
   iconType?: string;
   iconConfig?: Record<string, unknown>;
   customIconUrl?: string;
-  edgeoneBlobUrl?: string;
   cloudflareR2Url?: string;
+}
+
+export interface StoredIconBackup {
+  key: string;
+  data: string;
+  platform?: string; // Optional metadata from older backups; restoration always uses R2.
+}
+
+export interface BackupData {
+  links: LinkItem[];
+  categories: Category[];
+  searchConfig?: SearchConfig;
+  aiConfig?: AIConfig;
+  uploadedIcons?: StoredIconBackup[];
 }
 
 export interface Category {
@@ -65,7 +78,7 @@ export interface AIConfig {
 export type ViewMode = 'compact' | 'detailed' | 'app';
 
 // 图标获取方式类型
-export type IconSourceType = 'faviconextractor' | 'google' | 'customapi' | 'customurl' | 'upload-edgeone' | 'upload-cloudflare';
+export type IconSourceType = 'faviconextractor' | 'google' | 'customapi' | 'customurl' | 'upload-cloudflare';
 
 // 图标配置
 export interface IconConfig {

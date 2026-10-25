@@ -3,7 +3,7 @@
 项目使用一个 Worker 同时提供 React 静态页面和 `/api/*` 接口，书签和配置存入 Workers KV，上传图标和图标缓存存入 R2。
 部署通过 Cloudflare 网页控制台完成，无需在电脑上安装开发工具。
 
-## 一键部署（推荐）
+## 一键部署
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2Fkentinya%2Fcloudnav-workers)
 
@@ -87,11 +87,11 @@
 | `CLOUDNAV_KV` | KV 绑定 | 保存书签等数据，部署时自动创建；在 Worker 的 Bindings 中检查 |
 | `CLOUDNAV_R2` | R2 绑定 | 保存图标，部署时自动创建；在 Worker 的 Bindings 中检查 |
 | `PASSWORD` | 运行时 Secret（必填） | 一键部署时填写，或在 Settings → Variables and Secrets 中添加 |
-| `UPLOAD_PLATFORM` | 普通变量 | 仓库 `wrangler.jsonc` 已设为 `cloudflare` |
 | `ALLOWED_ORIGIN` | 可选普通变量 | 跨域来源限制，默认 `*`；需要限制时，在自己的仓库 `wrangler.jsonc` 的 `vars` 中添加 |
 
 普通变量建议保存在自己仓库的 `wrangler.jsonc` 中，避免后续 Git 部署覆盖仅在控制台添加的普通变量。通过控制台设置的 Secret 会在后续部署中保留。
 AI、天气和 WebDAV 等可选功能在网站的应用设置中配置。
+旧版 JSON / WebDAV 备份中内嵌的图标文件统一恢复到 R2，已有的外部图标 URL 会保留。
 
 如需复用已有资源，可在 GitHub 网页编辑 `wrangler.jsonc`：为 `kv_namespaces` 的对应项添加 `id`，为 `r2_buckets` 的对应项添加 `bucket_name`，然后提交触发部署。
 
@@ -124,17 +124,17 @@ Vite 将 `/api` 代理到 8788；8788 的页面来自 `dist`，修改前端后�
 已有 `dist` 时，可以用 `pnpm dev:api` 直接启动后端。
 
 ```sh
-pnpm test:worker      # API 路由、认证、KV、R2、CORS 和静态资源测试
+pnpm test:worker      # API、KV/R2、静态资源及旧版图标备份兼容性测试
 pnpm deploy:dry-run   # 本地生产构建与 Worker 打包，不上传或创建云端资源
 ```
 
-仓库迁移前已有 `pnpm type-check` 类型错误，以及 ESLint 9 不兼容 `.eslintrc.json` 的问题。
+仓库已有 `pnpm type-check` 类型错误，以及 ESLint 9 不兼容 `.eslintrc.json` 的问题。
 
 ## 路由说明
 
+- API 处理代码位于 `worker/api/`，由 `worker/index.js` 显式映射路由。
 - `/api/auth`、`/api/storage`、`/api/link`、`/api/favicon`、`/api/upload`、`/api/migrate-icons`、`/api/webdav`、`/api/debug` 交给 Worker。
 - 未定义的 `/api/*` 路径返回 JSON 404。
 - 其他请求使用 Workers Static Assets；页面导航支持单页应用回退。
-- `public/.assetsignore` 排除 Pages 专用的 `_routes.json`，该文件不参与 Workers 路由。
 
 参考：[官方一键部署按钮](https://developers.cloudflare.com/workers/platform/deploy-buttons/)、[Workers Git 部署](https://developers.cloudflare.com/workers/ci-cd/builds/)、[构建配置](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)、[构建环境版本](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/)、[运行时 Secret](https://developers.cloudflare.com/workers/configuration/secrets/)、[自动创建 KV/R2](https://developers.cloudflare.com/changelog/post/2025-10-24-automatic-resource-provisioning/)。

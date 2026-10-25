@@ -1,10 +1,8 @@
-# Created by https://www.toptal.com/developers/gitignore/api/hugo,node,linux,macos,nextjs,nuxtjs,windows,jetbrains,visualstudiocode,remix+cloudflarepages,remix+cloudflareworkers,vercel
+# Created by https://www.toptal.com/developers/gitignore/api/hugo,node,linux,macos,nextjs,nuxtjs,windows,jetbrains,visualstudiocode,remix+cloudflareworkers
 
-# Edit at https://www.toptal.com/developers/gitignore?templates=hugo,node,linux,macos,nextjs,nuxtjs,windows,jetbrains,visualstudiocode,remix+cloudflarepages,remix+cloudflareworkers,vercel
+# Edit at https://www.toptal.com/developers/gitignore?templates=hugo,node,linux,macos,nextjs,nuxtjs,windows,jetbrains,visualstudiocode,remix+cloudflareworkers
 
 ### Custom ###
-
-.edgeone/
 
 .agents/
 
@@ -298,10 +296,6 @@ yarn-error.log*
 
 .env*.local
 
-# vercel
-
-.vercel
-
 # typescript
 
 *.tsbuildinfo
@@ -496,17 +490,10 @@ node_modules
 
 # System files
 
-### Remix+CloudflarePages ###
-
-/functions/\[\[path\]\].js
-/functions/\[\[path\]\].js.map
-
 ### Remix+CloudflareWorkers ###
 
 /dist
 /.mf
-
-### Vercel ###
 
 ### VisualStudioCode ###
 
@@ -565,13 +552,7 @@ $RECYCLE.BIN/
 
 *.lnk
 
-# End of https://www.toptal.com/developers/gitignore/api/hugo,node,linux,macos,nextjs,nuxtjs,windows,jetbrains,visualstudiocode,remix+cloudflarepages,remix+cloudflareworkers,vercel
-
-# Tencent Cloud EdgeOne
-.env
-.edgeone/*
-!.edgeone/project.json
-.tef_dist/*
+# End of https://www.toptal.com/developers/gitignore/api/hugo,node,linux,macos,nextjs,nuxtjs,windows,jetbrains,visualstudiocode,remix+cloudflareworkers
 
 # KV 备份数据（包含敏感信息）
 kv/

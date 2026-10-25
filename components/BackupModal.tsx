@@ -1,6 +1,7 @@
+import { normalizeLinkIcon, restoreUploadedIcons, getStoredIconUrls } from '../services/iconStorage.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Cloud, Download, Upload, CheckCircle2, AlertCircle, RefreshCw, Save, FolderUp } from 'lucide-react';
-import { Category, LinkItem, WebDavConfig, SearchConfig, AIConfig } from '../types';
+import { Category, StoredIconBackup, LinkItem, WebDavConfig, SearchConfig, AIConfig } from '../types';
 import { checkWebDavConnection, uploadBackup, downloadBackup } from '../services/webDavService';
 import { generateBookmarkHtml, downloadHtmlFile } from '../services/exportService';
 
@@ -41,19 +42,11 @@ const BackupModal: React.FC<BackupModalProps> = ({
   }, [isOpen, webDavConfig]);
 
   const fetchIconsAsBase64 = async (linksList: LinkItem[], onProgress?: (current: number, total: number) => void) => {
-    const uploadedIcons: Array<{ key: string, platform: 'edgeone' | 'cloudflare', data: string }> = [];
+    const uploadedIcons: StoredIconBackup[] = [];
     
     const iconUrls = new Set<string>();
-    linksList.forEach(l => {
-      if (l.edgeoneBlobUrl && l.edgeoneBlobUrl.startsWith('/api/favicon?key=')) {
-        iconUrls.add(l.edgeoneBlobUrl);
-      }
-      if (l.cloudflareR2Url && l.cloudflareR2Url.startsWith('/api/favicon?key=')) {
-        iconUrls.add(l.cloudflareR2Url);
-      }
-      if (l.icon && l.icon.startsWith('/api/favicon?key=')) {
-        iconUrls.add(l.icon);
-      }
+    linksList.forEach(link => {
+      getStoredIconUrls(link).forEach(url => iconUrls.add(url));
     });
 
     const total = iconUrls.size;
@@ -79,15 +72,8 @@ const BackupModal: React.FC<BackupModalProps> = ({
           reader.readAsDataURL(blob);
         });
 
-        let platform: 'edgeone' | 'cloudflare' = 'edgeone';
-        const matchingLink = linksList.find(l => l.cloudflareR2Url === iconUrl || (l.icon === iconUrl && l.iconType === 'upload-cloudflare'));
-        if (matchingLink) {
-          platform = 'cloudflare';
-        }
-
         uploadedIcons.push({
           key,
-          platform,
           data: base64
         });
       } catch (e) {
@@ -96,63 +82,6 @@ const BackupModal: React.FC<BackupModalProps> = ({
     }
 
     return uploadedIcons;
-  };
-
-  const restoreUploadedIcons = async (
-    uploadedIcons: Array<{ key: string, platform: 'edgeone' | 'cloudflare', data: string }>,
-    linksList: LinkItem[],
-    onProgress?: (current: number, total: number) => void
-  ) => {
-    const updatedLinks = [...linksList];
-    const total = uploadedIcons.length;
-    let current = 0;
-
-    const authToken = localStorage.getItem('cloudnav_auth_token') || localStorage.getItem('authToken') || '';
-
-    for (const icon of uploadedIcons) {
-      current++;
-      if (onProgress) onProgress(current, total);
-
-      try {
-        const res = await fetch(icon.data);
-        const blob = await res.blob();
-        const filename = icon.key.split('/').pop() || 'icon.png';
-        const file = new File([blob], filename, { type: blob.type });
-
-        const categoryName = icon.key.split('/')[0] || 'common';
-
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('categoryName', categoryName);
-        formData.append('platform', icon.platform);
-
-        const uploadRes = await fetch('/api/upload', {
-          method: 'POST',
-          headers: {
-            'x-auth-password': authToken
-          },
-          body: formData
-        });
-
-        if (uploadRes.ok) {
-          const result = await uploadRes.json();
-          if (result.success && result.url) {
-            const oldUrl = `/api/favicon?key=${icon.key}`;
-            const newUrl = result.url;
-
-            updatedLinks.forEach(l => {
-              if (l.icon === oldUrl) l.icon = newUrl;
-              if (l.edgeoneBlobUrl === oldUrl) l.edgeoneBlobUrl = newUrl;
-              if (l.cloudflareR2Url === oldUrl) l.cloudflareR2Url = newUrl;
-            });
-          }
-        }
-      } catch (e) {
-        console.error(`Failed to restore icon: ${icon.key}`, e);
-      }
-    }
-
-    return updatedLinks;
   };
 
   const handleTestConnection = async () => {
@@ -196,7 +125,7 @@ const BackupModal: React.FC<BackupModalProps> = ({
     const data = await downloadBackup(config);
     
     if (data) {
-        let finalLinks = data.links;
+        let finalLinks = data.links.map(normalizeLinkIcon);
         if (data.uploadedIcons && Array.isArray(data.uploadedIcons) && data.uploadedIcons.length > 0) {
             setStatusMsg('正在还原云端图标文件...');
             finalLinks = await restoreUploadedIcons(data.uploadedIcons, data.links, (curr, tot) => {
@@ -288,7 +217,7 @@ const BackupModal: React.FC<BackupModalProps> = ({
         setImportStatus('idle');
         setImportMsg('正在准备导入...');
         
-        let finalLinks = data.links;
+        let finalLinks = data.links.map(normalizeLinkIcon);
         if (data.uploadedIcons && Array.isArray(data.uploadedIcons) && data.uploadedIcons.length > 0) {
           setImportMsg('正在导入并还原本地图标...');
           finalLinks = await restoreUploadedIcons(data.uploadedIcons, data.links, (curr, tot) => {

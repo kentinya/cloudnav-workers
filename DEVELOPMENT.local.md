@@ -23,7 +23,7 @@ cd /Users/songzhidong/CloudNav-Worker
 ```sh
 pnpm dev:worker       # 构建前端并启动完整 Worker
 pnpm dev              # 第二个终端：Vite 热更新，API 代理到 Worker
-pnpm test:worker      # 8 项 Worker 测试
+pnpm test:worker      # Worker API 与图标备份兼容性测试
 pnpm deploy:dry-run   # 本地构建和打包，不部署
 ```
 

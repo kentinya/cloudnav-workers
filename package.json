@@ -3,27 +3,25 @@
   "private": true,
   "version": "2.0.1",
   "type": "module",
-  "description": "A modern cloud-based navigation page for Cloudflare Workers, Pages, EdgeOne, and Vercel",
+  "description": "A cloud-based navigation and bookmark manager for Cloudflare Workers with KV and R2",
   "packageManager": "pnpm@11.11.0",
   "keywords": [
     "navigation",
     "bookmarks",
-    "edgeone",
     "cloudflare",
-    "vercel",
     "react",
     "typescript",
     "vite"
   ],
   "author": "eallion",
   "license": "MIT",
-  "homepage": "https://github.com/eallion/favorite",
+  "homepage": "https://github.com/kentinya/cloudnav-workers",
   "repository": {
     "type": "git",
-    "url": "https://github.com/eallion/favorite.git"
+    "url": "https://github.com/kentinya/cloudnav-workers.git"
   },
   "bugs": {
-    "url": "https://github.com/eallion/favorite/issues"
+    "url": "https://github.com/kentinya/cloudnav-workers/issues"
   },
   "engines": {
     "node": ">=22.0.0",
@@ -36,7 +34,7 @@
     "build": "vite build",
     "deploy": "pnpm build && wrangler deploy",
     "deploy:dry-run": "pnpm build && wrangler deploy --dry-run",
-    "test:worker": "node --test worker/index.test.js",
+    "test:worker": "node --test worker/index.test.js services/iconStorage.test.js",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --ext ts,tsx --fix",
@@ -48,9 +46,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^8.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "@edgeone/pages-blob": "^0.0.8",
     "@google/genai": "^1.52.0",
-    "@vercel/kv": "^3.0.0",
     "buffer": "^6.0.3",
     "lucide-react": "^0.554.0",
     "react": "^19.3.0",

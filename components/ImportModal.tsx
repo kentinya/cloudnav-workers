@@ -1,3 +1,4 @@
+import { normalizeLinkIcon, restoreUploadedIcons } from '../services/iconStorage.js';
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Upload, FileText, ArrowRight, Check, AlertCircle, FolderInput, ListTree, Database } from 'lucide-react';
 import { Category, LinkItem, SearchConfig, AIConfig } from '../types';
@@ -28,62 +29,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzingMsg, setAnalyzingMsg] = useState('正在分析文件...');
 
-  const restoreUploadedIcons = async (
-    uploadedIcons: Array<{ key: string, platform: 'edgeone' | 'cloudflare', data: string }>,
-    linksList: LinkItem[],
-    onProgress?: (current: number, total: number) => void
-  ) => {
-    const updatedLinks = [...linksList];
-    const total = uploadedIcons.length;
-    let current = 0;
 
-    const authToken = localStorage.getItem('cloudnav_auth_token') || localStorage.getItem('authToken') || '';
-
-    for (const icon of uploadedIcons) {
-      current++;
-      if (onProgress) onProgress(current, total);
-
-      try {
-        const res = await fetch(icon.data);
-        const blob = await res.blob();
-        const filename = icon.key.split('/').pop() || 'icon.png';
-        const file = new File([blob], filename, { type: blob.type });
-
-        const categoryName = icon.key.split('/')[0] || 'common';
-
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('categoryName', categoryName);
-        formData.append('platform', icon.platform);
-
-        const uploadRes = await fetch('/api/upload', {
-          method: 'POST',
-          headers: {
-            'x-auth-password': authToken
-          },
-          body: formData
-        });
-
-        if (uploadRes.ok) {
-          const result = await uploadRes.json();
-          if (result.success && result.url) {
-            const oldUrl = `/api/favicon?key=${icon.key}`;
-            const newUrl = result.url;
-
-            updatedLinks.forEach(l => {
-              if (l.icon === oldUrl) l.icon = newUrl;
-              if (l.edgeoneBlobUrl === oldUrl) l.edgeoneBlobUrl = newUrl;
-              if (l.cloudflareR2Url === oldUrl) l.cloudflareR2Url = newUrl;
-            });
-          }
-        }
-      } catch (e) {
-        console.error(`Failed to restore icon: ${icon.key}`, e);
-      }
-    }
-
-    return updatedLinks;
-  };
   
   // Analysis Results
   const [newLinksCount, setNewLinksCount] = useState(0);
@@ -193,7 +139,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
 
       // Smart icon detection and configuration
       let iconUrl = link.icon;
-      let detectedIconType: 'faviconextractor' | 'google' | 'customurl' | 'customapi' | 'upload' = 'google';
+      let detectedIconType: 'faviconextractor' | 'google' | 'customurl' | 'customapi' | 'upload-cloudflare' = 'google';
       let iconConfig: any = undefined;
 
       // Fallback to default if no icon is provided
@@ -204,7 +150,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
       } else {
         // Detect icon type from URL pattern
         if (iconUrl.startsWith('/api/favicon?key=')) {
-          detectedIconType = 'upload';
+          detectedIconType = 'upload-cloudflare';
         } else if (iconUrl.startsWith('/api/favicon') || iconUrl.includes('google.com/s2/favicons') || iconUrl.includes('gstatic.com')) {
           detectedIconType = 'google';
           try {
@@ -402,7 +348,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
               throw new Error('Invalid backup file format');
             }
 
-            let finalLinks = data.links;
+            let finalLinks = data.links.map(normalizeLinkIcon);
             if (data.uploadedIcons && Array.isArray(data.uploadedIcons) && data.uploadedIcons.length > 0) {
               setAnalyzingMsg('正在导入并还原备份图标...');
               finalLinks = await restoreUploadedIcons(data.uploadedIcons, data.links, (curr, tot) => {
