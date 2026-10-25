@@ -212,7 +212,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
       webdav: config.webdav || defaultWebDav,
       search: config.search || defaultSearch,
       icon: config.icon || DEFAULT_ICON_CONFIG,
-      ticker: config.ticker || config.mastodon || defaultTicker,
+      ticker: config.ticker || defaultTicker,
       weather: config.weather || defaultWeather,
     }});
   }, []);
@@ -227,6 +227,13 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
       })
     );
     if (Object.keys(filtered).length > 0) {
+      // Hydrate the local cache as well as React state; loading never writes to KV.
+      const { viewMode, showPinnedWebsites, darkMode, ...sections } = filtered as Partial<ConfigState>;
+      const cached = configManager.getConfig();
+      configManager.saveToLocalStorage({
+        ...cached, ...sections,
+        ui: { ...cached.ui, ...(showPinnedWebsites === undefined ? {} : { showPinnedWebsites }) },
+      });
       dispatch({ type: 'LOAD_CONFIG', payload: filtered });
     }
   }, []);

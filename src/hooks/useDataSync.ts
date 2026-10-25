@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react';
-import { LinkItem, Category, DEFAULT_CATEGORIES, INITIAL_LINKS } from '../../types';
+import { LinkItem, Category } from '../../types';
 import { STORAGE_KEYS, API_ENDPOINTS } from '../constants';
 import { useLinksContext } from '../contexts/LinksContext';
 import { useCategoriesContext } from '../contexts/CategoriesContext';
@@ -23,10 +23,10 @@ export function useDataSync() {
   // 从 KV 加载链接和分类
   const loadFromCloud = useCallback(async (): Promise<{ links: LinkItem[]; categories: Category[] } | null> => {
     try {
-      const res = await fetch(`${API_ENDPOINTS.STORAGE}?getConfig=true&readOnly=true`, { headers: { 'x-auth-password': authToken || 'public' } });
+      const res = await fetch(`${API_ENDPOINTS.STORAGE}?getConfig=true&readOnly=true${authToken ? '&admin=true' : ''}`, { headers: { 'x-auth-password': authToken || 'public' } });
       if (!res.ok) return null;
       const data = await res.json();
-      if (Array.isArray(data.links) && Array.isArray(data.categories)) {
+      if (Array.isArray(data.links) && Array.isArray(data.categories) && (!authToken || data.isAdmin === true)) {
         return { links: data.links || [], categories: data.categories || [] };
       }
       return null;
@@ -46,6 +46,7 @@ export function useDataSync() {
         const res = await fetch(`${API_ENDPOINTS.STORAGE}?getConfig=${key}`, { headers: { 'x-auth-password': authToken || 'public' } });
         if (res.ok) {
           const data = await res.json();
+          if (authToken !== activeAuth.current) return;
           if (data && Object.keys(data).length > 0) {
             if (key === 'view') {
               if (data.defaultMode) {
@@ -94,13 +95,12 @@ export function useDataSync() {
 
     if (current !== generation.current || authToken !== activeAuth.current) return false;
     if (cloud) {
-      const empty = !cloud.links.length && !cloud.categories.length;
-      let cats = empty ? DEFAULT_CATEGORIES : cloud.categories;
-      const visibleLinks = empty ? INITIAL_LINKS : cloud.links;
-      if (cats.length > 0 && !cats.some((c: Category) => c.id === 'common')) {
+      let cats = cloud.categories;
+      const visibleLinks = cloud.links;
+      if (!cats.some((c: Category) => c.id === 'common')) {
         cats = [{ id: 'common', name: '常用推荐', icon: 'Star' }, ...cats];
       }
-      initLinks(visibleLinks);
+      initLinks(visibleLinks, authToken || undefined);
       initCategories(cats);
       cachePublicNavigation(visibleLinks, cats);
       return true;

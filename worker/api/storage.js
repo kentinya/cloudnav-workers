@@ -17,32 +17,22 @@ async function readConfigSection(kv, section) {
   if (sectionStr) return JSON.parse(sectionStr);
   const configStr = await kv.get('config');
   const config = configStr ? JSON.parse(configStr) : {};
-  return config[section] || null;
+  return config[section] || (section === 'mastodon' ? config.ticker : null) || null;
 }
 
 async function mergeAllConfigSections(kv) {
-  const merged = {};
-  let hasAnyIndividual = false;
+  const configStr = await kv.get('config');
+  const merged = configStr ? JSON.parse(configStr) : {};
   const results = await Promise.all(CONFIG_SECTIONS.map(async (s) => {
     const v = await kv.get(`config:${s}`);
-    if (v) { hasAnyIndividual = true; return [s, JSON.parse(v)]; }
+    if (v) return [s, JSON.parse(v)];
     return null;
   }));
   for (const r of results) {
     if (r) merged[r[0]] = r[1];
   }
-  if (hasAnyIndividual) {
-    const configStr = await kv.get('config');
-    if (configStr) {
-      const legacy = JSON.parse(configStr);
-      for (const s of CONFIG_SECTIONS) {
-        if (!merged[s] && legacy[s]) merged[s] = legacy[s];
-      }
-    }
-    return merged;
-  }
-  const configStr = await kv.get('config');
-  return configStr ? JSON.parse(configStr) : {};
+  if (merged.mastodon) merged.ticker = merged.mastodon;
+  return merged;
 }
 
 // 生成分类链接 key
@@ -52,20 +42,17 @@ function categoryLinksKey(categoryId) {
 
 // 保存链接到对应的分类 key
 async function saveCategoryLinks(kv, links) {
-  // 1. 获取所有存在的分类，用于找出被删空的分类
-  let allCatIds = new Set(['common']);
-  try {
-    const categoriesStr = await kv.get(STORAGE_KEYS.CATEGORIES_CONFIG_KEY);
-    if (categoriesStr) {
-      const categories = JSON.parse(categoriesStr);
-      if (Array.isArray(categories)) {
-        categories.forEach(c => {
-          if (c && c.id) allCatIds.add(c.id);
-        });
-      }
-    }
-  } catch (e) {
-    console.warn('Failed to read categories during saveCategoryLinks:', e);
+  // Read failures must abort the save instead of being mistaken for empty data.
+  const categoriesStr = await kv.get(STORAGE_KEYS.CATEGORIES_CONFIG_KEY);
+  const categories = categoriesStr ? JSON.parse(categoriesStr) : [];
+  if (!Array.isArray(categories)) throw new Error('Invalid stored categories');
+  const allCatIds = new Set(['common', ...categories.map(category => category.id)]);
+
+  // The empty UI exposes an inbox, but only an explicit bookmark save creates it.
+  if (links.some(link => !link.categoryId || link.categoryId === 'common') && !categories.some(category => category.id === 'common')) {
+    await kv.put(STORAGE_KEYS.CATEGORIES_CONFIG_KEY, JSON.stringify([
+      { id: 'common', name: '常用推荐', icon: 'Star', visibility: 'public' }, ...categories,
+    ]));
   }
 
   // 2. 按 categoryId 分组
@@ -114,6 +101,11 @@ export async function onRequest(context) {
       const getConfig = url.searchParams.get('getConfig');
       const key = url.searchParams.get('key');
       const category = url.searchParams.get('category');
+
+      // An administrative editor must never hydrate from a filtered public response.
+      if (url.searchParams.get('admin') === 'true' && !admin) {
+        return jsonResponse({ error: '管理员会话尚未验证，请重新加载' }, 401, corsHeaders);
+      }
 
       // 检查认证需求
       if (checkAuth === 'true') {
@@ -185,6 +177,7 @@ export async function onRequest(context) {
       // 获取全部数据
       if (getConfig === 'true') {
         return jsonResponse({
+          isAdmin: admin,
           links: await readLinks(kv, categories, allowed),
           categories: await safeCategories(categories, allowed, admin),
         }, 200, corsHeaders);

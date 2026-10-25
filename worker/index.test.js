@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import worker from './index.js'
 
-function createEnv() {
+function createEnv(onWrite = () => {}) {
   const values = new Map()
   const objects = new Map()
   return {
@@ -11,10 +11,12 @@ function createEnv() {
       async get(key) {
         return values.get(key) ?? null
       },
-      async put(key, value) {
+      async put(key, value, options) {
+        onWrite('put', key, value, options)
         values.set(key, value)
       },
       async delete(key) {
+        onWrite('delete', key)
         values.delete(key)
       },
     },
@@ -394,4 +396,99 @@ test('expired category grants fail closed even before the KV record is removed',
   await env.CLOUDNAV_KV.put(key, JSON.stringify({ ...grant, expiresAt: Date.now() - 1 }))
   const response = await request(env, '/api/storage?getConfig=links&category=a', { headers: { Cookie: cookie } })
   assert.equal(response.status, 403)
+})
+
+
+test('login, session checks and navigation/config hydration never write business KV data', async () => {
+  const writes = []
+  const env = createEnv((...write) => writes.push(write))
+  const seed = {
+    cate_config: JSON.stringify([{ id: 'common', name: 'Public' }, { id: 'a', name: 'Private', password: 'private-password' }]),
+    'links:common': JSON.stringify([{ id: 'public', categoryId: 'common', title: 'Public cloud bookmark' }]),
+    'links:a': JSON.stringify([{ id: 'private', categoryId: 'a', title: 'Private cloud bookmark', pinned: true }]),
+    config: JSON.stringify({ website: { icp: 'legacy' }, webdav: { url: 'https://dav.example' }, preferences: { retained: true } }),
+    'config:website': JSON.stringify({ icp: 'cloud', passwordExpiry: { value: 2, unit: 'day' } }),
+    'config:mastodon': JSON.stringify({ enabled: false, customItems: [{ text: 'cloud' }] }),
+  }
+  for (const [key, value] of Object.entries(seed)) await env.CLOUDNAV_KV.put(key, value)
+  writes.length = 0
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = await login(env)
+    for (const path of ['?checkAuth=true', '?getConfig=true&admin=true', '?key=config&admin=true',
+      ...['website', 'ai', 'weather', 'mastodon', 'icon', 'search', 'view', 'ui'].map(section => `?getConfig=${section}`)]) {
+      assert.equal((await request(env, `/api/storage${path}`, { token })).status, 200, path)
+    }
+    const logout = await request(env, '/api/auth', { token, data: { logout: true } })
+    assert.equal(logout.status, 200)
+    await request(env, '/api/storage?getConfig=true', { headers: { 'x-auth-password': 'public' } })
+  }
+  assert.ok(writes.length > 0)
+  assert.ok(writes.every(([, key]) => /^(auth_token:|last_auth_time$|last_token$)/.test(key)), JSON.stringify(writes))
+  const tokenWrite = writes.find(([, key]) => key.startsWith('auth_token:'))
+  assert.equal(tokenWrite[3].expirationTtl, 172800)
+  for (const [key, value] of Object.entries(seed)) assert.equal(await env.CLOUDNAV_KV.get(key), value, key)
+})
+
+test('administrator hydration fails closed when a token expires or is not available yet', async () => {
+  const { env, token, links } = await privacyFixture()
+  for (const invalid of ['not-yet-replicated', 'public']) {
+    const response = await request(env, '/api/storage?getConfig=true&admin=true', { token: invalid })
+    assert.equal(response.status, 401)
+    assert.equal((await response.json()).links, undefined)
+  }
+  const full = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  assert.equal(full.isAdmin, true)
+  assert.equal(full.links.length, links.length)
+  const publicData = await (await request(env, '/api/storage?getConfig=true', { token: 'public' })).json()
+  assert.equal(publicData.isAdmin, false)
+  assert.equal(publicData.links.length, 1)
+})
+
+test('section settings overlay legacy settings without dropping unrelated fields or ticker updates', async () => {
+  const env = createEnv()
+  const token = await login(env)
+  await env.CLOUDNAV_KV.put('config', JSON.stringify({
+    website: { icp: 'old' }, ticker: { enabled: false },
+    webdav: { url: 'https://dav.example' }, preferences: { retained: true },
+  }))
+  const legacyTicker = await (await request(env, '/api/storage?getConfig=mastodon', { token })).json()
+  assert.deepEqual(legacyTicker, { enabled: false })
+  await env.CLOUDNAV_KV.put('config:website', JSON.stringify({ icp: 'new' }))
+  await env.CLOUDNAV_KV.put('config:mastodon', JSON.stringify({ enabled: true }))
+  const { value } = await (await request(env, '/api/storage?key=config', { token })).json()
+  const merged = JSON.parse(value)
+  assert.deepEqual(merged.website, { icp: 'new' })
+  assert.deepEqual(merged.webdav, { url: 'https://dav.example' })
+  assert.deepEqual(merged.preferences, { retained: true })
+  assert.deepEqual(merged.ticker, { enabled: true })
+})
+
+test('empty navigation stays empty on login/read and the first explicit bookmark save creates only an inbox', async () => {
+  const writes = []
+  const env = createEnv((...write) => writes.push(write))
+  const token = await login(env)
+  const empty = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  assert.deepEqual(empty.links, [])
+  assert.deepEqual(empty.categories, [])
+  assert.equal(await env.CLOUDNAV_KV.get('cate_config'), null)
+  await env.CLOUDNAV_KV.put('cate_config', '[]')
+  const link = { id: 'first', categoryId: 'common', title: 'My first bookmark' }
+  assert.equal((await request(env, '/api/storage', { token, data: { links: [link] } })).status, 200)
+  const saved = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  assert.deepEqual(saved.links, [link])
+  assert.equal(saved.categories.length, 1)
+  assert.equal(saved.categories[0].id, 'common')
+})
+
+test('bookmark-only edits preserve category metadata/password verifiers and all settings', async () => {
+  const { env, token, links } = await privacyFixture()
+  const categories = await env.CLOUDNAV_KV.get('cate_config')
+  const config = JSON.stringify({ icp: 'keep-this-setting' })
+  await env.CLOUDNAV_KV.put('config:website', config)
+  const edited = links.map(link => link.id === 'bookmark-common' ? { ...link, title: 'Edited public bookmark' } : link)
+  assert.equal((await request(env, '/api/storage', { token, data: { links: edited } })).status, 200)
+  assert.equal(await env.CLOUDNAV_KV.get('cate_config'), categories)
+  assert.equal(await env.CLOUDNAV_KV.get('config:website'), config)
+  const saved = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  assert.deepEqual(saved.links, edited)
 })

@@ -491,7 +491,9 @@ export function AppLayout() {
             onClose={() => setIsBackupModalOpen(false)}
             links={links}
             categories={categories}
-            onRestore={(newLinks, newCats) => setLinksAndSync(newLinks, newCats)}
+            onRestore={async (newLinks, newCats) => {
+              if (await setLinksAndSync(newLinks, newCats, true)) await initData();
+            }}
             webDavConfig={webdav || { url: '', username: '', password: '', enabled: false }}
             onSaveWebDavConfig={setWebDav}
             searchConfig={search || { mode: 'internal', externalSources: [] }}
@@ -507,7 +509,9 @@ export function AppLayout() {
             onClose={() => setIsImportModalOpen(false)}
             existingLinks={links}
             categories={categories}
-            onImport={(newLinks, newCats) => setLinksAndSync(newLinks, newCats)}
+            onImport={async (newLinks, newCats) => {
+              if (await setLinksAndSync(newLinks, newCats, true)) await initData();
+            }}
           />
         )}
 

@@ -89,7 +89,7 @@ export function CategoriesProvider({ children }: { children: React.ReactNode }) 
   });
 
   const { authToken } = useAuthContext();
-  const { initLinks } = useLinksContext();
+  const { initLinks, isReadyToSave } = useLinksContext();
   const activeAuth = useRef(authToken);
   activeAuth.current = authToken;
 
@@ -110,11 +110,14 @@ export function CategoriesProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const reloadNavigation = useCallback(async () => {
-    const response = await fetch(`${API_ENDPOINTS.STORAGE}?getConfig=true`, { headers: { 'x-auth-password': authToken || 'public' } });
+    const response = await fetch(`${API_ENDPOINTS.STORAGE}?getConfig=true${authToken ? '&admin=true' : ''}`, { headers: { 'x-auth-password': authToken || 'public' } });
     if (!response.ok) throw new Error('读取分类失败，请重试');
     const data = await response.json();
     if (activeAuth.current !== authToken) return;
-    initLinks(data.links);
+    if (!Array.isArray(data.links) || !Array.isArray(data.categories) || (authToken && data.isAdmin !== true)) {
+      throw new Error('管理员完整数据尚未加载，请刷新后重试');
+    }
+    initLinks(data.links, authToken || undefined);
     dispatch({ type: 'SET_CATEGORIES', payload: data.categories });
     cachePublicNavigation(data.links, data.categories);
   }, [authToken, initLinks]);
@@ -134,6 +137,7 @@ export function CategoriesProvider({ children }: { children: React.ReactNode }) 
 
   const setCategoriesAndSync = useCallback(async (categories: Category[], links: LinkItem[]) => {
     if (!authToken) throw new Error('请先登录管理员');
+    if (!isReadyToSave()) throw new Error('管理员完整数据尚未加载，请刷新后重试');
     const response = await fetch(API_ENDPOINTS.STORAGE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-auth-password': authToken },
@@ -141,7 +145,7 @@ export function CategoriesProvider({ children }: { children: React.ReactNode }) 
     });
     if (!response.ok) throw new Error((await response.json()).error || '保存分类失败');
     await reloadNavigation();
-  }, [authToken, reloadNavigation]);
+  }, [authToken, reloadNavigation, isReadyToSave]);
 
   const categoryTree = useMemo(() => buildCategoryTree(state.categories), [state.categories]);
 

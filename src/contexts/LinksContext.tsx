@@ -1,9 +1,10 @@
 import { normalizeLinkIcon } from '../../services/iconStorage.js';
-import React, { createContext, useContext, useReducer, useCallback, useMemo, useLayoutEffect } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useMemo, useLayoutEffect, useRef } from 'react';
 import { LinkItem, Category } from '../../types';
 import { STORAGE_KEYS, API_ENDPOINTS } from '../constants';
 import { useAuthContext } from './AuthContext';
 import { cachePublicNavigation } from '../utils/navigationCache';
+import { toast } from '../../components/Toast';
 
 // --- Types ---
 interface LinksState {
@@ -20,13 +21,14 @@ type LinksAction =
   | { type: 'SET_SYNC_STATUS'; payload: LinksState['syncStatus'] };
 
 interface LinksContextValue extends LinksState {
-  initLinks: (links: LinkItem[]) => void;
+  initLinks: (links: LinkItem[], verifiedToken?: string) => void;
+  isReadyToSave: () => boolean;
   addLink: (data: Omit<LinkItem, 'id' | 'createdAt'>) => void;
   updateLink: (link: LinkItem) => void;
   deleteLink: (id: string) => void;
   deleteLinks: (ids: Set<string>) => void;
   updateLinks: (links: LinkItem[]) => void;
-  setLinksAndSync: (links: LinkItem[], categories: Category[]) => void;
+  setLinksAndSync: (links: LinkItem[], categories: Category[], includeCategories?: boolean) => Promise<boolean>;
   pinnedLinks: LinkItem[];
   getLinksByCategory: (categoryId: string) => LinkItem[];
 }
@@ -63,18 +65,28 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
 
   const { authToken } = useAuthContext();
 
+  const activeAuth = useRef(authToken);
+  activeAuth.current = authToken;
+  const loadedToken = useRef<string | null>(null);
+
+  const isReadyToSave = useCallback(() => Boolean(
+    authToken && activeAuth.current === authToken && loadedToken.current === authToken
+  ), [authToken]);
+
   useLayoutEffect(() => {
+    loadedToken.current = null;
     dispatch({ type: 'SET_LINKS', payload: [] });
     localStorage.removeItem(STORAGE_KEYS.LOCAL_STORAGE_KEY);
   }, [authToken]);
 
   // 初始化（不触发同步）
-  const initLinks = useCallback((links: LinkItem[]) => {
+  const initLinks = useCallback((links: LinkItem[], verifiedToken?: string) => {
+    loadedToken.current = verifiedToken && verifiedToken === activeAuth.current ? verifiedToken : null;
     dispatch({ type: 'SET_LINKS', payload: links });
   }, []);
 
   // 同步到云端
-  const syncToCloud = useCallback(async (links: LinkItem[], categories: Category[], token: string) => {
+  const syncToCloud = useCallback(async (links: LinkItem[], categories: Category[], token: string, includeCategories: boolean) => {
     dispatch({ type: 'SET_SYNC_STATUS', payload: 'saving' });
     try {
       const res = await fetch(API_ENDPOINTS.STORAGE, {
@@ -83,10 +95,11 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
           'Content-Type': 'application/json',
           'x-auth-password': token,
         },
-        body: JSON.stringify({ links, categories }),
+        body: JSON.stringify(includeCategories ? { links, categories } : { links }),
       });
       if (res.status === 401) {
         dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' });
+        toast.error('管理员会话已失效，请重新登录后再保存');
         return false;
       }
       if (!res.ok) throw new Error('Sync failed');
@@ -95,18 +108,11 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
       return true;
     } catch (e) {
       console.error('Sync failed:', e);
+      toast.error('保存失败，请刷新确认云端数据后重试');
       dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' });
       return false;
     }
   }, []);
-
-  // 持久化：本地 + 云端
-  const persist = useCallback((links: LinkItem[], categories: Category[]) => {
-    cachePublicNavigation(links, categories);
-    if (authToken) {
-      syncToCloud(links, categories, authToken);
-    }
-  }, [authToken, syncToCloud]);
 
   const addLink = useCallback((data: Omit<LinkItem, 'id' | 'createdAt'>) => {
     const newLink: LinkItem = {
@@ -134,11 +140,15 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // 设置链接并同步（用于 updateData 场景）
-  const setLinksAndSync = useCallback((links: LinkItem[], categories: Category[]) => {
-    if (!authToken) return;
+  const setLinksAndSync = useCallback(async (links: LinkItem[], categories: Category[], includeCategories = false) => {
+    if (!isReadyToSave()) {
+      toast.error('管理员完整数据尚未加载，请刷新后重试');
+      return false;
+    }
     dispatch({ type: 'SET_LINKS', payload: links });
-    persist(links.map(normalizeLinkIcon), categories);
-  }, [persist, authToken]);
+    cachePublicNavigation(links, categories);
+    return syncToCloud(links.map(normalizeLinkIcon), categories, authToken!, includeCategories);
+  }, [isReadyToSave, authToken, syncToCloud]);
 
   // 置顶链接
   const pinnedLinks = useMemo(() =>
@@ -164,7 +174,7 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
   return (
     <LinksContext.Provider value={{
       ...state,
-      initLinks,
+      initLinks, isReadyToSave,
       addLink, updateLink, deleteLink, deleteLinks,
       updateLinks, setLinksAndSync, pinnedLinks, getLinksByCategory,
     }}>

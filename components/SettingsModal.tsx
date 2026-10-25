@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Save, Settings, Clock, LayoutGrid, MessageCircle, Cloud, BookOpen, Upload, CloudCog, LogOut, Loader2, Plus, Trash2, Search, Shield } from 'lucide-react';
 import { AIConfig, PasswordExpiryConfig, TickerConfig, WeatherConfig, WeatherProvider, TickerSource, SearchConfig, IconConfig, ViewMode } from '../types';
 import { toast } from './Toast';
@@ -63,23 +63,32 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen, onClose, authToken, onSettingsLoaded, onImportClick, onBackupClick, supportsUpload = true
 }) => {
   const [settings, setSettings] = useState<SettingsData>(DEFAULT_SETTINGS);
+  const [loadedToken, setLoadedToken] = useState<string | null>(null);
+  const loadedConfig = useRef<Record<string, any>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [migrating, setMigrating] = useState(false);
   const [mastodonInput, setMastodonInput] = useState('');
 
   useEffect(() => {
-    if (!isOpen) return;
+    setLoadedToken(null);
+    if (!isOpen || !authToken) return;
+    let cancelled = false;
     const fetchSettings = async () => {
       setLoading(true);
       try {
         // 1. Try to fetch new config key
-        let res = await fetch('/api/storage?key=config', { headers: { 'x-auth-password': authToken || 'public' } });
-        let data = res.ok ? await res.json() : null;
+        const res = await fetch('/api/storage?key=config&admin=true', { headers: { 'x-auth-password': authToken } });
+        if (!res.ok) throw new Error('读取云端设置失败，请关闭后重新打开');
+        const data = await res.json();
+        if (cancelled) return;
+        if (typeof data?.value !== 'string') throw new Error('云端设置格式无效');
 
         if (data?.value) {
           // Mapping AppConfig to SettingsData structure
           const appConfig = JSON.parse(data.value);
+          if (!appConfig || typeof appConfig !== 'object' || Array.isArray(appConfig)) throw new Error('云端设置格式无效');
+          loadedConfig.current = appConfig;
           
           // Ensure providers map exists
           const aiConfig = appConfig.ai || DEFAULT_SETTINGS.ai;
@@ -95,36 +104,43 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             }
           }
 
-          setSettings(prev => ({
-            ...prev,
+          setSettings(() => ({
+            ...DEFAULT_SETTINGS,
             ai: aiConfig,
-            passwordExpiry: appConfig.website?.passwordExpiry || prev.passwordExpiry,
+            passwordExpiry: appConfig.website?.passwordExpiry || DEFAULT_SETTINGS.passwordExpiry,
             icp: appConfig.website?.icp || '',
             mps: appConfig.website?.mps || '',
-            ticker: appConfig.ticker || appConfig.mastodon || prev.ticker,
-            weather: appConfig.weather || prev.weather,
-            showPinnedWebsites: appConfig.ui?.showPinnedWebsites ?? prev.showPinnedWebsites,
-            defaultViewMode: appConfig.view?.defaultMode || appConfig.view?.mode || prev.defaultViewMode,
-            search: appConfig.search || prev.search,
-            icon: appConfig.icon || prev.icon || DEFAULT_ICON_CONFIG,
+            ticker: appConfig.ticker || appConfig.mastodon || DEFAULT_SETTINGS.ticker,
+            weather: appConfig.weather || DEFAULT_SETTINGS.weather,
+            showPinnedWebsites: appConfig.ui?.showPinnedWebsites ?? DEFAULT_SETTINGS.showPinnedWebsites,
+            defaultViewMode: appConfig.view?.defaultMode || appConfig.view?.mode || DEFAULT_SETTINGS.defaultViewMode,
+            search: appConfig.search || DEFAULT_SETTINGS.search,
+            icon: appConfig.icon || DEFAULT_SETTINGS.icon || DEFAULT_ICON_CONFIG,
           }));
           
+          setLoadedToken(authToken);
+          setMastodonInput('');
           const ticker = appConfig.ticker || appConfig.mastodon;
           if (ticker?.mastodonUsername && ticker?.mastodonInstance) {
             setMastodonInput(`@${ticker.mastodonUsername}@${ticker.mastodonInstance}`);
           }
         }
       } catch (e) {
-        console.error('Failed to load settings:', e);
+        if (!cancelled) {
+          console.error('Failed to load settings:', e);
+          toast.error('读取云端设置失败，已禁止保存，请关闭后重试');
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     fetchSettings();
-  }, [isOpen]);
+    return () => { cancelled = true; };
+  }, [isOpen, authToken]);
 
   const handleSave = async () => {
     if (!authToken) { toast.error('请先登录'); return; }
+    if (loading || loadedToken !== authToken) { toast.error('云端设置尚未加载，无法保存'); return; }
     setSaving(true);
     try {
       const tickerConfig = { ...settings.ticker };
@@ -138,6 +154,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       const sections: Record<string, any> = {
         ai: finalSettings.ai,
         website: {
+          ...loadedConfig.current.website,
           passwordExpiry: finalSettings.passwordExpiry,
           icp: finalSettings.icp || '',
           mps: finalSettings.mps || '',
@@ -146,8 +163,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         weather: finalSettings.weather,
         search: finalSettings.search,
         icon: finalSettings.icon,
-        ui: { showPinnedWebsites: finalSettings.showPinnedWebsites },
-        view: { defaultMode: finalSettings.defaultViewMode },
+        ui: { ...loadedConfig.current.ui, showPinnedWebsites: finalSettings.showPinnedWebsites },
+        view: { ...loadedConfig.current.view, defaultMode: finalSettings.defaultViewMode },
       };
 
       const results = await Promise.all(
@@ -714,7 +731,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Footer */}
         <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex justify-end gap-3 shrink-0">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors">取消</button>
-          <button onClick={handleSave} disabled={loading || saving} className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-2 font-medium">
+          <button onClick={handleSave} disabled={loading || saving || !authToken || loadedToken !== authToken} className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-2 font-medium">
             {saving ? <Loader2 className="animate-spin w-4 h-4" /> : <Save size={16} />}
             {saving ? '保存中...' : '保存设置'}
           </button>

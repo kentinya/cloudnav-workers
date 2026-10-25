@@ -51,14 +51,10 @@ export async function onRequest(context) {
     // 读取密码过期配置
     let expirationTtl = 24 * 60 * 60; // 默认 1 天
     try {
-      const configStr = await kv.get('config');
-      if (configStr) {
-        const config = JSON.parse(configStr);
-        const expiry = config.website?.passwordExpiry;
-        if (expiry) {
-          expirationTtl = calcExpiryTtl(expiry);
-        }
-      }
+      const websiteStr = await kv.get('config:website');
+      const legacyStr = websiteStr ? null : await kv.get('config');
+      const website = websiteStr ? JSON.parse(websiteStr) : (legacyStr ? JSON.parse(legacyStr).website : null);
+      if (website?.passwordExpiry) expirationTtl = calcExpiryTtl(website.passwordExpiry);
     } catch (e) {
       console.warn('Failed to read expiry config:', e);
     }
