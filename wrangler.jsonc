@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cloudnav-worker",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-10-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api", "/api/*"],
+  },
+  // Wrangler provisions these resources on the first deployment.
+  // For existing resources, add the KV id and R2 bucket_name here.
+  "kv_namespaces": [{ "binding": "CLOUDNAV_KV" }],
+  "r2_buckets": [{ "binding": "CLOUDNAV_R2" }],
+  "vars": {
+    "UPLOAD_PLATFORM": "cloudflare",
+  },
+  // PASSWORD is a secret: pnpm exec wrangler secret put PASSWORD
+  "dev": {
+    "ip": "127.0.0.1",
+    "port": 8788,
+  },
+}

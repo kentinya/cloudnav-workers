@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="蜗牛个人导航 - 一个现代化的云端导航页面，帮助您管理和快速访问常用网站链接" />
+    <meta name="keywords" content="导航,书签,云导航,网站导航,书签管理,CloudNav" />
+    <meta name="author" content="eallion" />
+    <meta name="theme-color" content="#3b82f6" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="蜗牛个人导航" />
+    <meta property="og:description" content="一个现代化的云端导航页面，帮助您管理和快速访问常用网站链接" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:url" content="https://s.eallion.com" />
+    <meta property="og:site_name" content="蜗牛个人导航" />
+    <meta property="og:locale" content="zh_CN" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="蜗牛个人导航" />
+    <meta name="twitter:description" content="一个现代化的云端导航页面，帮助您管理和快速访问常用网站链接" />
+    <meta name="twitter:image" content="/og-image.png" />
+
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://s.eallion.com" />
+
+    <!-- DNS Prefetch -->
+    <link rel="dns-prefetch" href="//fonts.googleapis.com" />
+
+    <!-- Preconnect -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+
+    <!-- Security Headers -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block" />
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https:; media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'self';" />
+
+    <title>蜗牛个人导航</title>
+  <link rel="stylesheet" href="/src/index.css">
+  <script>
+    // 确保页面加载时使用正确的主题
+    (function() {
+      const theme = localStorage.getItem('cloudnav_theme_preference');
+      if (theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    })();
+  </script>
+</head>
+  <body class="bg-gray-50 text-slate-900 transition-colors duration-300">
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

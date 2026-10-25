@@ -1,0 +1,2 @@
+# Copy to .dev.vars and replace with your local administrator password.
+PASSWORD=change-this-local-password

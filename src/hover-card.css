@@ -1,0 +1,184 @@
+/* Context-aware hover cards effect */
+.link-card {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.25s ease-out;
+  --icon-color: #3b82f6;
+  --icon-color-rgb: 59, 130, 246;
+  border-color: transparent !important;
+}
+
+.link-card[data-color-ready] {
+  border-color: transparent !important;
+}
+
+.link-card .icon-bg {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  transform: translateZ(0);
+  filter: blur(20px) saturate(3) brightness(1.2) contrast(1.3);
+  translate: calc((var(--pointer-x, 0.5) - 0.5) * 30%) calc((var(--pointer-y, 0.5) - 0.5) * 30%);
+  scale: 2.8;
+  opacity: 0.15;
+  will-change: transform, filter;
+  transition: opacity 0.3s ease-out, translate 0.15s ease-out;
+  z-index: 0;
+}
+
+.link-card:not(:hover):not(:focus-within) .icon-bg {
+  opacity: 0;
+  transition: opacity 0.4s ease-out;
+}
+
+.link-card .icon-bg img {
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  opacity: 0.8;
+}
+
+.link-card .icon-bg span {
+  color: var(--icon-color);
+  opacity: 0.3;
+}
+
+.link-card .icon-main {
+  position: relative;
+  z-index: 2;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.link-card:hover .icon-main {
+  transform: scale(1.05);
+}
+
+/* Hover: show color border + shadow */
+.link-card[data-color-ready]:hover {
+  border-color: rgba(var(--icon-color-rgb), 0.5) !important;
+  box-shadow:
+    0 0 0 1px rgba(var(--icon-color-rgb), 0.3),
+    0 10px 25px -5px rgba(var(--icon-color-rgb), 0.2),
+    0 4px 10px -4px rgba(var(--icon-color-rgb), 0.1);
+}
+
+.link-card[data-color-ready]:hover::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    800px circle at calc(var(--pointer-x, 0.5) * 100%) calc(var(--pointer-y, 0.5) * 100%),
+    rgba(var(--icon-color-rgb), 0.1) 0%,
+    rgba(var(--icon-color-rgb), 0.04) 20%,
+    transparent 40%
+  );
+  z-index: 1;
+}
+
+/* Hover without color - blue fallback */
+.link-card:not([data-color-ready]):hover {
+  border-color: rgba(59, 130, 246, 0.4) !important;
+  box-shadow:
+    0 0 0 1px rgba(59, 130, 246, 0.2),
+    0 10px 25px -5px rgba(59, 130, 246, 0.15);
+}
+
+/* Dark mode */
+.dark .link-card .icon-bg {
+  filter: blur(25px) saturate(4) brightness(1.4) contrast(1.5);
+  opacity: 0.2;
+}
+
+.dark .link-card:not(:hover):not(:focus-within) .icon-bg {
+  opacity: 0;
+}
+
+.dark .link-card .icon-bg span {
+  color: var(--icon-color);
+  opacity: 0.4;
+}
+
+.dark .link-card[data-color-ready]:hover {
+  border-color: rgba(var(--icon-color-rgb), 0.6) !important;
+  box-shadow:
+    0 0 0 1px rgba(var(--icon-color-rgb), 0.4),
+    0 10px 25px -5px rgba(var(--icon-color-rgb), 0.3),
+    0 4px 10px -4px rgba(var(--icon-color-rgb), 0.15);
+}
+
+.dark .link-card[data-color-ready]:hover::after {
+  background: radial-gradient(
+    800px circle at calc(var(--pointer-x, 0.5) * 100%) calc(var(--pointer-y, 0.5) * 100%),
+    rgba(var(--icon-color-rgb), 0.15) 0%,
+    rgba(var(--icon-color-rgb), 0.06) 20%,
+    transparent 40%
+  );
+}
+
+.dark .link-card:not([data-color-ready]):hover {
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  box-shadow:
+    0 0 0 1px rgba(59, 130, 246, 0.3),
+    0 10px 25px -5px rgba(59, 130, 246, 0.2);
+}
+
+/* App 模式：完全移除外边框、外阴影与背景遮罩，呈现纯粹的 iOS/安卓应用抽屉风格 */
+.link-card[data-view-mode="app"],
+.link-card[data-view-mode="app"]:hover,
+.link-card[data-view-mode="app"][data-color-ready]:hover,
+.dark .link-card[data-view-mode="app"][data-color-ready]:hover,
+.link-card[data-view-mode="app"]:not([data-color-ready]):hover,
+.dark .link-card[data-view-mode="app"]:not([data-color-ready]):hover {
+  border: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  background-color: transparent;
+}
+
+.link-card[data-view-mode="app"] {
+  overflow: visible;
+}
+
+.link-card[data-view-mode="app"]::after {
+  display: none !important;
+}
+
+.link-card[data-view-mode="app"] .icon-bg {
+  display: none !important;
+}
+
+.link-card[data-view-mode="app"]:hover .icon-main {
+  transform: none;
+}
+
+/* Performance optimization */
+@media (prefers-reduced-motion: reduce) {
+  .link-card .icon-bg {
+    will-change: auto;
+    transition: none;
+  }
+
+  .link-card .icon-main {
+    transition: none;
+  }
+
+  .link-card:hover .icon-main {
+    transform: none;
+  }
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  .link-card .icon-bg {
+    filter: blur(15px) saturate(2) brightness(1.1);
+    scale: 2.2;
+    opacity: 0.1;
+  }
+
+  .dark .link-card .icon-bg {
+    opacity: 0.15;
+  }
+}
