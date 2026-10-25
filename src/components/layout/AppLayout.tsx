@@ -181,10 +181,14 @@ export function AppLayout() {
 
   // --- Handlers ---
   const handleAddLink = useCallback(() => {
+    if (!authToken) {
+      setIsAuthOpen(true);
+      return;
+    }
     setEditingLink(undefined);
     setPrefillLink(undefined);
     setIsModalOpen(true);
-  }, []);
+  }, [authToken]);
 
   const handleEditLink = useCallback((link: LinkItem) => {
     setEditingLink(link);

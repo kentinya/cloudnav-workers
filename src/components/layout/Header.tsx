@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, X, Plus, Moon, Sun, Menu, Settings, Upload, CheckSquare, LogOut, Lock, GripVertical, Edit3, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
+import { Search, X, Plus, Moon, Sun, Menu, Settings, Upload, CheckSquare, LogOut, Lock, GripVertical, Edit3, MoreHorizontal, Layers } from 'lucide-react';
 import { useConfigContext } from '../../contexts/ConfigContext';
 import { useAuthContext } from '../../contexts/AuthContext';
 import { useLinksContext } from '../../contexts/LinksContext';
@@ -188,21 +188,21 @@ export function Header({
 
   return (
     <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-800/95 md:bg-white/80 md:dark:bg-slate-800/50 md:backdrop-blur-md border-b border-slate-200 dark:border-slate-700">
-      <div className="relative flex items-center justify-between px-4 lg:px-8 h-16">
+      <div className="relative grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 px-3 sm:px-4 md:flex md:h-16 lg:px-8">
         {/* Left: Menu + Logo */}
-        <div className="flex items-center gap-3">
-          <button onClick={onToggleSidebar} className="lg:hidden p-2 -ml-2 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg cursor-pointer transition-colors">
+        <div className="col-start-1 row-start-1 flex h-16 shrink-0 items-center gap-3">
+          <button onClick={onToggleSidebar} aria-label="打开侧边栏" className="lg:hidden p-2 -ml-2 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg cursor-pointer transition-colors">
             <Menu size={24} />
           </button>
-          <h1 className={`${isMobileSearchOpen ? 'hidden' : 'hidden sm:block'} text-lg font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent shrink-0`}>
+          <h1 className={`${isMobileSearchOpen ? 'hidden md:block' : 'hidden sm:block'} max-w-48 truncate text-lg font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent shrink-0`}>
             {ai?.navigationName || '蜗牛个人导航'}
           </h1>
         </div>
 
         {/* Mobile Search Bar - Expands to fill space */}
         {isMobileSearchOpen && (
-          <div className="flex-1 flex items-center gap-2 md:hidden ml-2">
-            <div className="relative flex-1">
+          <div className="col-start-2 row-start-1 flex h-16 min-w-0 items-center gap-2 md:hidden">
+            <div className="relative min-w-0 flex-1">
               <div 
                 className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center h-full"
                 onMouseEnter={handleMouseEnter}
@@ -262,13 +262,10 @@ export function Header({
           </div>
         )}
 
-        {/* Middle: Spacer */}
-        <div className={`${isMobileSearchOpen ? 'hidden md:flex' : 'flex-1'}`} />
-
-        {/* Right: Actions */}
-        <div className="flex items-center gap-2">
+        {/* On mobile, secondary controls use the second grid row. */}
+        <div className="contents md:flex md:min-w-0 md:flex-1 md:items-center md:justify-end md:gap-2">
           {/* Ticker & Search Shared Container */}
-          <div className="hidden md:flex items-center gap-2 w-[240px] lg:w-[360px] xl:w-[512px] shrink-0">
+          <div className="hidden min-w-0 items-center gap-2 md:flex md:w-[240px] lg:w-[360px] xl:w-[512px]">
             {/* 1. Ticker (Now First) */}
             <div className={`transition-all duration-300 min-w-0 overflow-hidden ${isSearchExpanded ? 'w-9' : 'flex-1'}`}>
               <MastodonTicker config={ticker} isCollapsed={isSearchExpanded} />
@@ -290,23 +287,15 @@ export function Header({
             </div>
           </div>
 
-          {/* Mobile search toggle */}
-          {!isMobileSearchOpen && (
-            <button onClick={onToggleMobileSearch} className="md:hidden p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer">
-              <Search size={18} />
-            </button>
-          )}
-
+          <div className={`${isMobileSearchOpen ? 'hidden md:flex' : 'flex'} col-span-2 row-start-2 min-w-0 items-center justify-between gap-2 pb-3 md:shrink-0 md:pb-0`}>
           {/* Weather display */}
-          <div className="shrink-0">
+          <div className="min-w-0 overflow-hidden">
             <WeatherDisplay config={weather} />
           </div>
 
-          {/* Removed sync status indicators */}
-
           {/* View mode toggle */}
           <div 
-            className={`${isMobileSearchOpen ? 'hidden' : 'flex'} items-center bg-slate-200 dark:bg-slate-700 rounded-full h-[36px] shrink-0 border border-slate-300/50 p-0.5`}
+            className="flex items-center bg-slate-200 dark:bg-slate-700 rounded-full h-[36px] shrink-0 border border-slate-300/50 p-0.5"
             style={darkMode ? { border: 'none' } : {}}
           >
             <button
@@ -342,39 +331,38 @@ export function Header({
           </div>
 
           {/* Theme toggle */}
-          <button onClick={() => setDarkMode(!darkMode)} className={`${isMobileSearchOpen ? 'hidden' : 'flex'} items-center justify-center p-2 rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 h-[36px] min-w-[36px] cursor-pointer`}>
+          <button onClick={() => setDarkMode(!darkMode)} aria-label={darkMode ? '切换浅色模式' : '切换深色模式'} className="flex shrink-0 items-center justify-center p-2 rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 h-[36px] min-w-[36px] cursor-pointer">
             {darkMode ? <Sun size={18} /> : <Moon size={18} />}
           </button>
 
-          {/* GitHub link */}
-          <a
-            href="https://github.com/eallion/favorite"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`${isMobileSearchOpen ? 'hidden' : 'flex'} items-center justify-center p-2 rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 h-[36px] min-w-[36px] cursor-pointer transition-colors`}
-            title="Favorite on GitHub"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12c0 5.303 3.438 9.8 8.205 11.385c.6.113.82-.258.82-.577c0-.285-.01-1.04-.015-2.04c-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729c1.205.084 1.838 1.236 1.838 1.236c1.07 1.835 2.809 1.305 3.495.998c.108-.776.417-1.305.76-1.605c-2.665-.3-5.466-1.332-5.466-5.93c0-1.31.465-2.38 1.235-3.22c-.135-.303-.54-1.523.105-3.176c0 0 1.005-.322 3.3 1.23c.96-.267 1.98-.399 3-.405c1.02.006 2.04.138 3 .405c2.28-1.552 3.285-1.23 3.285-1.23c.645 1.653.24 2.873.12 3.176c.765.84 1.23 1.91 1.23 3.22c0 4.61-2.805 5.625-5.475 5.92c.42.36.81 1.096.81 2.22c0 1.606-.015 2.896-.015 3.286c0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
-          </a>
+          </div>
 
-          {/* Removed sync status indicator block */}
+          <div className={`${isMobileSearchOpen ? 'hidden md:flex' : 'flex'} col-start-2 row-start-1 h-16 shrink-0 items-center justify-end gap-2`}>
+          {/* Mobile search toggle */}
+          {!isMobileSearchOpen && (
+            <button onClick={onToggleMobileSearch} aria-label="打开搜索" className="md:hidden p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer">
+              <Search size={18} />
+            </button>
+          )}
+
+            <button
+              onClick={onAddLink}
+              aria-label="添加新链接"
+              title={authToken ? '添加新链接' : '登录后添加新链接'}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20 cursor-pointer"
+            >
+              <Plus size={20} />
+            </button>
 
           {authToken ? (
-            <div className={`${isMobileSearchOpen ? 'hidden' : 'flex'} items-center gap-1`}>
-              {/* Add link - Always visible as primary action */}
-              <button onClick={onAddLink} className="flex items-center justify-center p-2 rounded-full text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 h-[36px] min-w-[36px] cursor-pointer" title="添加链接">
-                <Plus size={20} />
-              </button>
-
-              <div className="h-4 w-[1px] bg-slate-300 dark:bg-slate-600 mx-1" />
-
-              {/* Collapsible Tools Area */}
+            <div className="relative flex shrink-0 items-center">
+              {/* Management menu */}
               <div 
-                className={`flex items-center gap-1 transition-all duration-500 ease-in-out overflow-hidden ${
-                  isToolsExpanded ? 'max-w-[400px] opacity-100' : 'max-w-0 opacity-0'
-                }`}
+                id="header-management-tools"
+                className={`${isToolsExpanded ? 'block' : 'hidden'} absolute right-0 top-full z-40 mt-2 w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-800`}
+                onClick={() => setIsToolsExpanded(false)}
               >
-                <div className="flex items-center gap-1 pr-1">
+                <div className="grid grid-cols-4 gap-1">
                   {/* Settings */}
                   <button
                     onClick={onOpenSettings}
@@ -443,22 +431,26 @@ export function Header({
               {/* Toggle Button */}
               <button 
                 onClick={() => setIsToolsExpanded(!isToolsExpanded)}
-                className={`flex items-center justify-center p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer transition-all ${isToolsExpanded ? 'rotate-180' : 'rotate-0'}`}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
+                aria-label="更多管理操作"
+                aria-expanded={isToolsExpanded}
+                aria-controls="header-management-tools"
                 title={isToolsExpanded ? "折叠工具栏" : "展开工具栏"}
               >
-                <ChevronLeft size={20} />
+                <MoreHorizontal size={20} />
               </button>
             </div>
           ) : (
             <button
               onClick={onOpenAuth}
-              className={`${isMobileSearchOpen ? 'hidden' : 'flex'} lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors cursor-pointer`}
+              className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors cursor-pointer"
               title="登录"
             >
               <Lock size={14} />
               <span>登录</span>
             </button>
           )}
+          </div>
         </div>
       </div>
     </header>
