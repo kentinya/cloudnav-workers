@@ -15,6 +15,7 @@
 - **全分类锚点页面**：所有分类同屏展示，侧边栏一键跳转
 - **前端可视化编辑**：右键菜单 / 拖拽排序 / 批量操作 / 分类管理
 - **访客模式**：普通用户可正常浏览，登录后获得管理权限
+- **私密分类**：独立分类密码由 Worker 验证，未解锁的书签不进入公开搜索或置顶
 - **KV 按分类存储**：链接按 `links:{category_id}` 拆分存储，读取时自动聚合
 - **Cloudflare Workers 部署**：一个 Worker 同时提供静态页面和 API，使用 KV / R2 存储
 - **KV 云端存储**：数据持久化，localStorage 缓存 + KV 双向同步
@@ -86,6 +87,8 @@
 Cloudflare 会自动创建并绑定 `CLOUDNAV_KV` 和 `CLOUDNAV_R2`。如果部署页面未要求填写 `PASSWORD`，部署后进入 Worker 的 **Settings → Variables and Secrets → Add**，选择 **Secret**，添加 `PASSWORD` 并点击 **Deploy**。
 
 完整的网页操作、手动导入仓库、自定义域名和常见问题见 **[Cloudflare Workers 网页部署教程](docs/workers.md)**。按钮使用 Cloudflare 官方的 [Deploy to Cloudflare](https://developers.cloudflare.com/workers/platform/deploy-buttons/) 流程。
+
+公开首页、私密分类和管理员权限的使用与测试方法见 [访问权限说明](docs/access-control.md)。
 
 ## ⚙️ 环境变量
 

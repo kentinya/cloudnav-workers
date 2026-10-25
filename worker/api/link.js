@@ -1,3 +1,4 @@
+import { adminToken } from './_access.js';
 // 链接添加接口（Chrome 扩展等外部调用）
 // Cloudflare Workers API
 
@@ -16,7 +17,7 @@ export async function onRequest(context) {
   }
 
   // 认证检查
-  const providedPassword = request.headers.get('x-auth-password');
+  const providedPassword = adminToken(request);
   const isAuthenticated = await verifyAuth({
     providedPassword,
     serverPassword: env.PASSWORD,

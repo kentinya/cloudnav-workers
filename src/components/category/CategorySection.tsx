@@ -1,4 +1,5 @@
 import React from 'react';
+import { Lock } from 'lucide-react';
 import { DndContext, closestCenter, DragEndEvent, SensorDescriptor } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
 import { LinkItem, Category, ViewMode } from '../../../types';
@@ -6,6 +7,7 @@ import { CategoryWithChildren } from '../../contexts/CategoriesContext';
 import { LinkCard } from '../link/LinkCard';
 
 interface CategorySectionProps {
+  onUnlockCategory: (category: Category) => void;
   category: CategoryWithChildren;
   links: LinkItem[];
   subcategoryLinks: LinkItem[];
@@ -25,6 +27,7 @@ interface CategorySectionProps {
 }
 
 export function CategorySection({
+  onUnlockCategory,
   category, links, subcategoryLinks, viewMode,
   isBatchEditMode, selectedLinks, onToggleSelection,
   onEditLink, onDeleteLink, onContextMenu, onDragEnd, sensors,
@@ -32,7 +35,20 @@ export function CategorySection({
 }: CategorySectionProps) {
   const allLinks = [...links, ...subcategoryLinks];
 
-  if (allLinks.length === 0) return null;
+  if (allLinks.length === 0 && !category.isLocked && !category.children?.some(child => child.isLocked)) return null;
+
+  const lockedPlaceholder = (item: Category) => (
+    <button type="button" onClick={() => onUnlockCategory(item)} aria-label={`解锁分类 ${item.name}`} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500 hover:text-amber-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+      <Lock size={16} /> 私密分类，点击输入分类密码
+    </button>
+  );
+
+  if (category.isLocked) return (
+    <section id={`cat-${category.id}`} className="mb-8 scroll-mt-20">
+      <h2 className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-4">{category.name}</h2>
+      {lockedPlaceholder(category)}
+    </section>
+  );
 
   const handleDragEnd = (event: DragEndEvent) => {
     onDragEnd(event, category.id);
@@ -83,6 +99,12 @@ export function CategorySection({
       {/* Subcategory links */}
       {category.children?.map(child => {
         const childLinks = subcategoryLinks.filter(l => l.categoryId === child.id);
+        if (child.isLocked) return (
+          <div key={child.id} id={`cat-${child.id}`} className="mt-6 scroll-mt-20">
+            <h3 className="text-xs font-semibold text-slate-400 mb-3">{child.name}</h3>
+            {lockedPlaceholder(child)}
+          </div>
+        );
         if (childLinks.length === 0) return null;
 
         return (

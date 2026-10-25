@@ -166,7 +166,7 @@ const BackupModal: React.FC<BackupModalProps> = ({
     // 也获取 config key 以备份所有设置
     let appConfig = null;
     try {
-      const res = await fetch('/api/storage?key=config');
+      const res = await fetch('/api/storage?key=config', { headers: { 'x-auth-password': localStorage.getItem('cloudnav_auth_token') || 'public' } });
       if (res.ok) {
         const data = await res.json();
         if (data.value) appConfig = JSON.parse(data.value);

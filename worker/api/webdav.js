@@ -1,6 +1,7 @@
 // WebDAV 代理接口
 // Cloudflare Workers API
 
+import { isAdmin } from './_access.js';
 import { getCorsHeaders, jsonResponse } from './_kvAdapter.js';
 
 export async function onRequest(context) {
@@ -14,6 +15,8 @@ export async function onRequest(context) {
   if (request.method !== 'POST') {
     return jsonResponse({ error: 'Method Not Allowed' }, 405, corsHeaders);
   }
+
+  if (!await isAdmin(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401, corsHeaders);
 
   try {
     const body = await request.json();

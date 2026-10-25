@@ -4,6 +4,8 @@ import { STORAGE_KEYS, API_ENDPOINTS } from '../constants';
 import { useLinksContext } from '../contexts/LinksContext';
 import { useCategoriesContext } from '../contexts/CategoriesContext';
 import { useConfigContext } from '../contexts/ConfigContext';
+import { useAuthContext } from '../contexts/AuthContext';
+import { cachePublicNavigation } from '../utils/navigationCache';
 import { configManager } from '../utils/configManager';
 
 /**
@@ -13,36 +15,18 @@ export function useDataSync() {
   const { links = [], initLinks, setLinksAndSync } = useLinksContext();
   const { categories = [], initCategories } = useCategoriesContext();
   const { initConfig } = useConfigContext();
-  const initialized = useRef(false);
-
-  // 从 localStorage 加载
-  const loadFromLocal = useCallback((): { links: LinkItem[]; categories: Category[] } => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        let cats: Category[] = parsed.categories || DEFAULT_CATEGORIES;
-
-        // 确保 common 分类存在且排第一
-        if (cats.length > 0 && !cats.some(c => c.id === 'common')) {
-          cats = [{ id: 'common', name: '常用推荐', icon: 'Star' }, ...cats];
-        }
-
-        return { links: parsed.links || INITIAL_LINKS, categories: cats };
-      }
-    } catch (e) {
-      console.error('Load from local storage failed:', e);
-    }
-    return { links: INITIAL_LINKS, categories: DEFAULT_CATEGORIES };
-  }, []);
+  const { authToken, isCheckingAuth } = useAuthContext();
+  const generation = useRef(0);
+  const activeAuth = useRef(authToken);
+  activeAuth.current = authToken;
 
   // 从 KV 加载链接和分类
   const loadFromCloud = useCallback(async (): Promise<{ links: LinkItem[]; categories: Category[] } | null> => {
     try {
-      const res = await fetch(`${API_ENDPOINTS.STORAGE}?getConfig=true&readOnly=true`);
+      const res = await fetch(`${API_ENDPOINTS.STORAGE}?getConfig=true&readOnly=true`, { headers: { 'x-auth-password': authToken || 'public' } });
       if (!res.ok) return null;
       const data = await res.json();
-      if (data.links?.length > 0 || data.categories?.length > 0) {
+      if (Array.isArray(data.links) && Array.isArray(data.categories)) {
         return { links: data.links || [], categories: data.categories || [] };
       }
       return null;
@@ -50,7 +34,7 @@ export function useDataSync() {
       console.error('Load from cloud failed:', e);
       return null;
     }
-  }, []);
+  }, [authToken]);
 
   // 从 KV 加载各个配置
   const loadConfigsFromCloud = useCallback(async () => {
@@ -59,7 +43,7 @@ export function useDataSync() {
 
     await Promise.all(configKeys.map(async (key) => {
       try {
-        const res = await fetch(`${API_ENDPOINTS.STORAGE}?getConfig=${key}`);
+        const res = await fetch(`${API_ENDPOINTS.STORAGE}?getConfig=${key}`, { headers: { 'x-auth-password': authToken || 'public' } });
         if (res.ok) {
           const data = await res.json();
           if (data && Object.keys(data).length > 0) {
@@ -88,20 +72,19 @@ export function useDataSync() {
     }));
 
     // 更新 ConfigContext
-    if (Object.keys(configMap).length > 0) {
+    if (authToken === activeAuth.current && Object.keys(configMap).length > 0) {
       initConfig(configMap);
     }
-  }, [initConfig]);
+  }, [initConfig, authToken]);
 
   // 初始化数据
   const initData = useCallback(async () => {
-    if (initialized.current) return;
-    initialized.current = true;
-
-    // 1. 先从本地加载（快速展示）
-    const local = loadFromLocal();
-    initLinks(local.links);
-    initCategories(local.categories);
+    if (isCheckingAuth) return false;
+    const current = ++generation.current;
+    // Previously cached administrator data must never paint on a public visit.
+    localStorage.removeItem(STORAGE_KEYS.LOCAL_STORAGE_KEY);
+    initLinks([]);
+    initCategories([]);
 
     // 2. 并行从云端获取最新数据
     const [cloud] = await Promise.all([
@@ -109,21 +92,21 @@ export function useDataSync() {
       loadConfigsFromCloud(),
     ]);
 
+    if (current !== generation.current || authToken !== activeAuth.current) return false;
     if (cloud) {
-      // 云端有数据，用云端数据覆盖
-      let cats = cloud.categories || [];
+      const empty = !cloud.links.length && !cloud.categories.length;
+      let cats = empty ? DEFAULT_CATEGORIES : cloud.categories;
+      const visibleLinks = empty ? INITIAL_LINKS : cloud.links;
       if (cats.length > 0 && !cats.some((c: Category) => c.id === 'common')) {
         cats = [{ id: 'common', name: '常用推荐', icon: 'Star' }, ...cats];
       }
-      initLinks(cloud.links || []);
+      initLinks(visibleLinks);
       initCategories(cats);
-      // 更新 localStorage 缓存
-      localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_KEY, JSON.stringify({
-        links: cloud.links || [],
-        categories: cats,
-      }));
+      cachePublicNavigation(visibleLinks, cats);
+      return true;
     }
-  }, [loadFromLocal, loadFromCloud, loadConfigsFromCloud, initLinks, initCategories]);
+    return false;
+  }, [loadFromCloud, loadConfigsFromCloud, initLinks, initCategories, isCheckingAuth, authToken]);
 
   // 同步到云端
   const syncToCloud = useCallback(async () => {
@@ -131,5 +114,5 @@ export function useDataSync() {
     setLinksAndSync(links, categories);
   }, [links, categories, setLinksAndSync]);
 
-  return { initData, loadFromLocal, loadFromCloud, syncToCloud };
+  return { initData, loadFromCloud, syncToCloud };
 }

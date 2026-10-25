@@ -1,8 +1,9 @@
 import { normalizeLinkIcon } from '../../services/iconStorage.js';
-import React, { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useMemo, useLayoutEffect } from 'react';
 import { LinkItem, Category } from '../../types';
 import { STORAGE_KEYS, API_ENDPOINTS } from '../constants';
 import { useAuthContext } from './AuthContext';
+import { cachePublicNavigation } from '../utils/navigationCache';
 
 // --- Types ---
 interface LinksState {
@@ -62,6 +63,11 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
 
   const { authToken } = useAuthContext();
 
+  useLayoutEffect(() => {
+    dispatch({ type: 'SET_LINKS', payload: [] });
+    localStorage.removeItem(STORAGE_KEYS.LOCAL_STORAGE_KEY);
+  }, [authToken]);
+
   // 初始化（不触发同步）
   const initLinks = useCallback((links: LinkItem[]) => {
     dispatch({ type: 'SET_LINKS', payload: links });
@@ -96,7 +102,7 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
 
   // 持久化：本地 + 云端
   const persist = useCallback((links: LinkItem[], categories: Category[]) => {
-    localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_KEY, JSON.stringify({ links, categories }));
+    cachePublicNavigation(links, categories);
     if (authToken) {
       syncToCloud(links, categories, authToken);
     }
@@ -129,9 +135,10 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
 
   // 设置链接并同步（用于 updateData 场景）
   const setLinksAndSync = useCallback((links: LinkItem[], categories: Category[]) => {
+    if (!authToken) return;
     dispatch({ type: 'SET_LINKS', payload: links });
     persist(links.map(normalizeLinkIcon), categories);
-  }, [persist]);
+  }, [persist, authToken]);
 
   // 置顶链接
   const pinnedLinks = useMemo(() =>

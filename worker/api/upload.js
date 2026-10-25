@@ -1,3 +1,4 @@
+import { adminToken } from './_access.js';
 // Cloudflare R2 图标上传、转存与删除接口
 
 import { getKV, getCorsHeaders, verifyAuth, jsonResponse } from './_kvAdapter.js';
@@ -24,7 +25,7 @@ export async function onRequest(context) {
     }
   }
 
-  const providedPassword = request.headers.get('x-auth-password');
+  const providedPassword = adminToken(request);
   const isAuthenticated = await verifyAuth({
     providedPassword,
     serverPassword: env.PASSWORD,

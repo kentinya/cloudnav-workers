@@ -1,3 +1,4 @@
+import { adminToken } from './_access.js';
 import { getKV, getCorsHeaders, verifyAuth, jsonResponse } from './_kvAdapter.js';
 
 const UPSTREAM_PROVIDERS = [
@@ -28,7 +29,7 @@ export async function onRequest(context) {
     return jsonResponse({ error: 'Method Not Allowed' }, 405, corsHeaders);
   }
 
-  const providedPassword = request.headers.get('x-auth-password');
+  const providedPassword = adminToken(request);
   const kv = getKV(env);
   const isAuthenticated = await verifyAuth({
     providedPassword,

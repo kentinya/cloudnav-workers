@@ -3,13 +3,14 @@ import { X, ArrowUp, ArrowDown, Trash2, Edit2, Plus, Check, Lock, Unlock, Palett
 import { Category } from '../types';
 import Icon from './Icon';
 import IconSelector from './IconSelector';
+import { toast } from './Toast';
 import CategoryActionAuthModal from './CategoryActionAuthModal';
 
 interface CategoryManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
   categories: Category[];
-  onUpdateCategories: (newCategories: Category[]) => void;
+  onUpdateCategories: (newCategories: Category[]) => void | Promise<void>;
   onDeleteCategory: (id: string) => void;
   onVerifyPassword?: (password: string) => Promise<boolean>;
 }
@@ -30,12 +31,14 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editPassword, setEditPassword] = useState('');
+  const [editVisibility, setEditVisibility] = useState<'public' | 'private'>('public');
   const [editIcon, setEditIcon] = useState('');
   const [editParentId, setEditParentId] = useState<string>('');
   const [editWeight, setEditWeight] = useState<number>(0);
 
   const [newCatName, setNewCatName] = useState('');
   const [newCatPassword, setNewCatPassword] = useState('');
+  const [newVisibility, setNewVisibility] = useState<'public' | 'private'>('public');
   const [newCatIcon, setNewCatIcon] = useState('Folder');
   const [newCatParentId, setNewCatParentId] = useState<string>('');
 
@@ -138,11 +141,11 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
       const orphans = subs.filter(s => !topLevel.some(t => t.id === s.parentId));
       sorted.push(...orphans);
 
-      onUpdateCategories(sorted);
+      await onUpdateCategories(sorted);
       setHasChanges(false);
       onClose();
     } catch (e) {
-      console.error('Save failed:', e);
+      toast.error(e instanceof Error ? e.message : '保存分类失败');
     } finally {
       setIsSaving(false);
     }
@@ -205,6 +208,7 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     setEditingId(cat.id);
     setEditName(cat.name);
     setEditPassword(cat.password || '');
+    setEditVisibility(cat.visibility || (cat.password ? 'private' : 'public'));
     setEditIcon(cat.icon);
     setEditParentId(cat.parentId || '');
     setEditWeight(cat.weight ?? 0);
@@ -212,13 +216,19 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
 
   const saveEdit = () => {
     if (!editingId || !editName.trim()) return;
+    const current = localCategories.find(category => category.id === editingId);
+    if (editVisibility === 'private' && !editPassword && !current?.hasPassword && !current?.password) {
+      toast.error('请为私密分类设置密码');
+      return;
+    }
     const newCats = localCategories.map(c => {
       if (c.id === editingId) {
         return {
           ...c,
           name: editName.trim(),
           icon: editIcon,
-          password: editPassword.trim() || undefined,
+          visibility: editVisibility,
+          password: editVisibility === 'private' ? editPassword || undefined : undefined,
           parentId: editParentId || undefined,
           isSubcategory: !!editParentId,
           weight: editWeight,
@@ -232,13 +242,14 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   };
 
   const handleAdd = () => {
-    if (!newCatName.trim()) return;
+    if (!newCatName.trim() || (newVisibility === 'private' && !newCatPassword)) return;
     const maxWeight = Math.max(0, ...localCategories.map(c => c.weight ?? 0));
     const newCat: Category = {
       id: Date.now().toString(),
       name: newCatName.trim(),
       icon: newCatIcon,
-      password: newCatPassword.trim() || undefined,
+      visibility: newVisibility,
+      password: newVisibility === 'private' ? newCatPassword : undefined,
       parentId: newCatParentId || undefined,
       isSubcategory: !!newCatParentId,
       weight: maxWeight + 1,
@@ -246,6 +257,7 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     markChanged([...localCategories, newCat]);
     setNewCatName('');
     setNewCatPassword('');
+    setNewVisibility('public');
     setNewCatIcon('Folder');
     setNewCatParentId('');
   };
@@ -317,7 +329,7 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                         </div>
 
                         <div className="flex items-center gap-2">
-                          {editingId === category.id && category.id !== 'common' ? (
+                          {editingId === category.id ? (
                             <div className="flex flex-col gap-2">
                               <div className="flex items-center gap-2">
                                 <Icon name={editIcon} size={16} />
@@ -337,6 +349,7 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                                 <label className="text-xs text-slate-500">父分类:</label>
                                 <select
                                   value={editParentId}
+                                  disabled={category.id === 'common'}
                                   onChange={(e) => setEditParentId(e.target.value)}
                                   className="flex-1 p-1.5 px-2 text-sm rounded border border-blue-500 dark:bg-slate-800 dark:text-white outline-none"
                                   aria-label="选择父分类"
@@ -348,15 +361,22 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                                 </select>
                               </div>
                               <div className="flex items-center gap-2">
+                                <label className="text-xs text-slate-500">可见性:</label>
+                                <select aria-label="分类可见性" value={editVisibility} onChange={e => setEditVisibility(e.target.value as 'public' | 'private')} className="flex-1 p-1.5 px-2 text-sm rounded border border-blue-500 dark:bg-slate-800 dark:text-white outline-none">
+                                  <option value="public">公开</option>
+                                  <option value="private">私密</option>
+                                </select>
+                              </div>
+                              {editVisibility === 'private' && <div className="flex items-center gap-2">
                                 <Lock size={14} className="text-slate-400" />
                                 <input
                                   type="password"
                                   value={editPassword}
                                   onChange={(e) => setEditPassword(e.target.value)}
                                   className="flex-1 p-1.5 px-2 text-sm rounded border border-blue-500 dark:bg-slate-800 dark:text-white outline-none"
-                                  placeholder="密码（可选）"
+                                  placeholder={category.hasPassword ? '留空保留原分类密码' : '设置独立分类密码'}
                                 />
-                              </div>
+                              </div>}
                               <div className="flex items-center gap-2">
                                 <span className="text-xs text-slate-500">排序权重:</span>
                                 <input
@@ -379,13 +399,13 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                                 {category.isSubcategory && <span className="text-slate-400 mr-1">└</span>}
                                 {category.name}
                                 {category.id === 'common' && (
-                                  <span className="ml-2 text-xs text-slate-400">(默认分类，不可编辑)</span>
+                                  <span className="ml-2 text-xs text-slate-400">(默认分类，不可删除)</span>
                                 )}
                               </span>
                               <span className="text-xs text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">
                                 w:{category.weight ?? 0}
                               </span>
-                              {category.password && <Lock size={12} className="text-slate-400" />}
+                              {(category.visibility === 'private' || category.password) && <Lock size={12} className="text-slate-400" />}
                             </div>
                           )}
                         </div>
@@ -397,8 +417,8 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                             </button>
                           ) : (
                             <>
-                              {category.id !== 'common' && (
-                                <button onClick={() => handleStartEdit(category)} className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-slate-200 dark:hover:bg-slate-600 rounded">
+                              {(
+                                <button title={`编辑分类 ${category.name}`} onClick={() => handleStartEdit(category)} className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-slate-200 dark:hover:bg-slate-600 rounded">
                                   <Edit2 size={14} />
                                 </button>
                               )}
@@ -457,21 +477,29 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                   ))}
                 </select>
               </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-500">可见性:</label>
+                <select aria-label="新分类可见性" value={newVisibility} onChange={e => setNewVisibility(e.target.value as 'public' | 'private')} className="flex-1 p-2 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm outline-none">
+                  <option value="public">公开</option>
+                  <option value="private">私密</option>
+                </select>
+              </div>
               <div className="flex gap-2">
-                <div className="flex-1 relative">
+                {newVisibility === 'private' && <div className="flex-1 relative">
                   <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
-                    type="text"
+                    type="password"
                     value={newCatPassword}
                     onChange={(e) => setNewCatPassword(e.target.value)}
-                    placeholder="密码 (可选)"
+                    placeholder="设置独立分类密码"
                     className="w-full pl-8 p-2 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                     onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
                   />
-                </div>
+                </div>}
                 <button
+                  aria-label="添加分类"
                   onClick={handleAdd}
-                  disabled={!newCatName.trim()}
+                  disabled={!newCatName.trim() || (newVisibility === 'private' && !newCatPassword)}
                   className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg transition-colors flex items-center"
                 >
                   <Plus size={18} />

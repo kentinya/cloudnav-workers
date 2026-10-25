@@ -74,7 +74,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       setLoading(true);
       try {
         // 1. Try to fetch new config key
-        let res = await fetch('/api/storage?key=config');
+        let res = await fetch('/api/storage?key=config', { headers: { 'x-auth-password': authToken || 'public' } });
         let data = res.ok ? await res.json() : null;
 
         if (data?.value) {

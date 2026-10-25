@@ -24,6 +24,7 @@ export function Sidebar({ isOpen, onClose, activeCategoryId, onOpenCatManager, o
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleCategoryClick = useCallback((cat: CategoryWithChildren) => {
+    if (cat.isLocked) { onUnlockCategory(cat); return; }
     if (cat.children && cat.children.length > 0) {
       toggleExpand(cat.id);
       const targetId = cat.children[0]?.id || cat.id;
@@ -32,13 +33,13 @@ export function Sidebar({ isOpen, onClose, activeCategoryId, onOpenCatManager, o
       document.getElementById(`cat-${cat.id}`)?.scrollIntoView({ behavior: 'smooth' });
     }
     onClose();
-  }, [toggleExpand, onClose]);
+  }, [toggleExpand, onClose, onUnlockCategory]);
 
   const renderCategoryNode = (cat: CategoryWithChildren, level: number = 0) => {
     const isExpanded = expandedCategories.has(cat.id);
     const isActive = activeCategoryId === cat.id;
     const hasChildren = cat.children && cat.children.length > 0;
-    const isLocked = cat.password && !unlockedCategoryIds.has(cat.id);
+    const isLocked = cat.isLocked;
 
     return (
       <div key={cat.id}>

@@ -1,3 +1,4 @@
+import { onRequest as categoryAuth } from './api/category-auth.js'
 import { onRequest as auth } from './api/auth.js'
 import { onRequest as storage } from './api/storage.js'
 import { onRequest as link } from './api/link.js'
@@ -11,6 +12,7 @@ import { getCorsHeaders, jsonResponse } from './api/_kvAdapter.js'
 // Explicit routes for the Cloudflare Worker API.
 const routes = new Map([
   ['/api/auth', auth],
+  ['/api/category-auth', categoryAuth],
   ['/api/storage', storage],
   ['/api/link', link],
   ['/api/favicon', favicon],
@@ -31,7 +33,11 @@ export default {
       }
 
       try {
-        return await handler({ request, env })
+        const response = await handler({ request, env })
+        const headers = new Headers(response.headers)
+        headers.set('Cache-Control', 'private, no-store')
+        headers.set('Vary', 'Cookie, x-auth-password')
+        return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
       } catch (error) {
         console.error('Worker API error:', error)
         return jsonResponse({ error: 'Internal Server Error' }, 500, getCorsHeaders(env))

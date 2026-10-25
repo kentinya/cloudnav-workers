@@ -1,7 +1,9 @@
-import React, { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useMemo, useRef } from 'react';
 import { Category, LinkItem, DEFAULT_CATEGORIES } from '../../types';
 import { STORAGE_KEYS, API_ENDPOINTS } from '../constants';
 import { useAuthContext } from './AuthContext';
+import { useLinksContext } from './LinksContext';
+import { cachePublicNavigation } from '../utils/navigationCache';
 
 // --- Types ---
 interface CategoriesState {
@@ -24,9 +26,9 @@ interface CategoriesContextValue extends CategoriesState {
   addCategory: (cat: Category) => void;
   updateCategory: (cat: Category) => void;
   deleteCategory: (id: string) => void;
-  unlockCategory: (id: string) => void;
+  unlockCategory: (id: string, password: string) => Promise<void>;
   toggleExpand: (id: string) => void;
-  setCategoriesAndSync: (categories: Category[], links: LinkItem[]) => void;
+  setCategoriesAndSync: (categories: Category[], links: LinkItem[]) => Promise<void>;
   categoryTree: CategoryWithChildren[];
   buildCategoryTree: (cats: Category[]) => CategoryWithChildren[];
 }
@@ -39,7 +41,7 @@ export interface CategoryWithChildren extends Category {
 function categoriesReducer(state: CategoriesState, action: CategoriesAction): CategoriesState {
   switch (action.type) {
     case 'SET_CATEGORIES':
-      return { ...state, categories: action.payload };
+      return { ...state, categories: action.payload, unlockedCategoryIds: new Set(action.payload.filter(category => !category.isLocked).map(category => category.id)) };
     case 'ADD_CATEGORY':
       return { ...state, categories: [...state.categories, action.payload] };
     case 'UPDATE_CATEGORY':
@@ -87,6 +89,9 @@ export function CategoriesProvider({ children }: { children: React.ReactNode }) 
   });
 
   const { authToken } = useAuthContext();
+  const { initLinks } = useLinksContext();
+  const activeAuth = useRef(authToken);
+  activeAuth.current = authToken;
 
   const initCategories = useCallback((categories: Category[]) => {
     dispatch({ type: 'SET_CATEGORIES', payload: categories });
@@ -104,32 +109,39 @@ export function CategoriesProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: 'DELETE_CATEGORY', payload: id });
   }, []);
 
-  const unlockCategory = useCallback((id: string) => {
-    dispatch({ type: 'UNLOCK_CATEGORY', payload: id });
-  }, []);
+  const reloadNavigation = useCallback(async () => {
+    const response = await fetch(`${API_ENDPOINTS.STORAGE}?getConfig=true`, { headers: { 'x-auth-password': authToken || 'public' } });
+    if (!response.ok) throw new Error('读取分类失败，请重试');
+    const data = await response.json();
+    if (activeAuth.current !== authToken) return;
+    initLinks(data.links);
+    dispatch({ type: 'SET_CATEGORIES', payload: data.categories });
+    cachePublicNavigation(data.links, data.categories);
+  }, [authToken, initLinks]);
+
+  const unlockCategory = useCallback(async (id: string, password: string) => {
+    const response = await fetch('/api/category-auth', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: id, password }),
+    });
+    if (!response.ok) throw new Error((await response.json()).error || '分类密码验证失败');
+    await reloadNavigation();
+  }, [reloadNavigation]);
 
   const toggleExpand = useCallback((id: string) => {
     dispatch({ type: 'TOGGLE_EXPAND', payload: id });
   }, []);
 
-  const persist = useCallback((categories: Category[], links: LinkItem[]) => {
-    localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_KEY, JSON.stringify({ links, categories }));
-    if (authToken) {
-      fetch(API_ENDPOINTS.STORAGE, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-auth-password': authToken,
-        },
-        body: JSON.stringify({ links, categories }),
-      }).catch(e => console.error('Sync categories failed:', e));
-    }
-  }, [authToken]);
-
-  const setCategoriesAndSync = useCallback((categories: Category[], links: LinkItem[]) => {
-    dispatch({ type: 'SET_CATEGORIES', payload: categories });
-    persist(categories, links);
-  }, [persist]);
+  const setCategoriesAndSync = useCallback(async (categories: Category[], links: LinkItem[]) => {
+    if (!authToken) throw new Error('请先登录管理员');
+    const response = await fetch(API_ENDPOINTS.STORAGE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-auth-password': authToken },
+      body: JSON.stringify({ categories }),
+    });
+    if (!response.ok) throw new Error((await response.json()).error || '保存分类失败');
+    await reloadNavigation();
+  }, [authToken, reloadNavigation]);
 
   const categoryTree = useMemo(() => buildCategoryTree(state.categories), [state.categories]);
 

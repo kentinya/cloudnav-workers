@@ -35,6 +35,10 @@ export interface Category {
   name: string;
   icon: string;
   password?: string;
+  visibility?: 'public' | 'private';
+  hasPassword?: boolean;
+  passwordHash?: string; // Administrator backup verifier; never returned to visitors.
+  isLocked?: boolean;
   parentId?: string;
   isSubcategory?: boolean;
   weight?: number;

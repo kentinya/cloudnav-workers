@@ -1,3 +1,4 @@
+import { canReadIcon } from './_access.js';
 // Cloudflare R2 图标缓存与代理接口
 
 import { getCorsHeaders, jsonResponse, getKV } from './_kvAdapter.js';
@@ -71,6 +72,10 @@ export async function onRequest(context) {
 
   if (!key && !domain) {
     return jsonResponse({ error: 'key or domain parameter required' }, 400, corsHeaders);
+  }
+
+  if (!await canReadIcon(request, env, key, key ? undefined : domain)) {
+    return new Response('File Not Found', { status: 404, headers: corsHeaders });
   }
 
   // 读取 KV 缓存配置状态（优先读独立 config:icon key，fallback 到旧 config）

@@ -1,3 +1,4 @@
+import { adminToken } from './_access.js';
 // 调试接口（需要认证）
 // Cloudflare Workers API
 
@@ -13,7 +14,7 @@ export async function onRequest(context) {
 
   // 认证检查（通过 query param 或 header）
   const url = new URL(request.url);
-  const token = url.searchParams.get('token') || request.headers.get('x-auth-password');
+  const token = url.searchParams.get('token') || adminToken(request);
 
   const isAuthenticated = await verifyAuth({
     providedPassword: token,

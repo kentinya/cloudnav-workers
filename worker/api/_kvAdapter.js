@@ -37,7 +37,7 @@ export function getCorsHeaders(env) {
  * @returns {Promise<boolean>}
  */
 export async function verifyAuth({ providedPassword, serverPassword, kv }) {
-  if (!providedPassword) return false;
+  if (!serverPassword || !providedPassword) return false;
 
   // 直接匹配密码
   if (serverPassword && providedPassword === serverPassword) {

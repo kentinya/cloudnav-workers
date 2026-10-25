@@ -82,9 +82,11 @@ export function AppLayout() {
 
   // Initialize data
   useEffect(() => {
+    let active = true;
     const init = async () => {
-      await initData();
-      setIsInitialLoading(false);
+      setIsInitialLoading(true);
+      const loaded = await initData();
+      if (active) setIsInitialLoading(!loaded);
     };
 
     // Global keyboard listener for search focus
@@ -141,7 +143,7 @@ export function AppLayout() {
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     init();
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+    return () => { active = false; window.removeEventListener('keydown', handleGlobalKeyDown); };
   }, [initData]);
 
   // Apply dynamic website title and favicon
@@ -158,6 +160,15 @@ export function AppLayout() {
       link.href = aiConfig.faviconUrl || '/favicon.ico';
     }
   }, [aiConfig?.websiteTitle, aiConfig?.faviconUrl]);
+
+  useEffect(() => {
+    if (!authToken) {
+      setIsModalOpen(false); setIsCatManagerOpen(false); setIsSettingsModalOpen(false);
+      setIsImportModalOpen(false); setIsBackupModalOpen(false); setIsSearchConfigModalOpen(false);
+      setIsEditMode(false); setIsDragSortMode(false); setIsBatchEditMode(false);
+      setContextMenu({ isOpen: false, position: { x: 0, y: 0 }, link: null });
+    }
+  }, [authToken]);
 
   // Close auth modal on login
   useEffect(() => {
@@ -179,6 +190,19 @@ export function AppLayout() {
     }
   }, []);
 
+  const requestCategoryUnlock = useCallback((category: Category) => {
+    let target = category;
+    const visited = new Set<string>();
+    while (target.parentId && !visited.has(target.id)) {
+      visited.add(target.id);
+      const parent = categories.find(item => item.id === target.parentId);
+      if (!parent?.isLocked) break;
+      target = parent;
+    }
+    setCatAuthModalData(target);
+    setSidebarOpen(false);
+  }, [categories]);
+
   // --- Handlers ---
   const handleAddLink = useCallback(() => {
     if (!authToken) {
@@ -191,12 +215,14 @@ export function AppLayout() {
   }, [authToken]);
 
   const handleEditLink = useCallback((link: LinkItem) => {
+    if (!authToken) return;
     setEditingLink(link);
     setPrefillLink(undefined);
     setIsModalOpen(true);
-  }, []);
+  }, [authToken]);
 
   const handleDeleteLink = useCallback((id: string) => {
+    if (!authToken) return;
     if (confirm('确定删除此链接吗？')) {
       const linkToDelete = links.find(l => l.id === id);
       if (linkToDelete) {
@@ -214,6 +240,7 @@ export function AppLayout() {
   }, [deleteLink, links, categories, setLinksAndSync, authToken]);
 
   const handleSaveLink = useCallback((data: Omit<LinkItem, 'id' | 'createdAt'>) => {
+    if (!authToken) return;
     if (editingLink) {
       const updated = links.map(l => l.id === editingLink.id ? { ...l, ...data } : l);
       setLinksAndSync(updated, categories);
@@ -322,7 +349,7 @@ export function AppLayout() {
   }, []);
 
   // Loading state
-  if (isInitialLoading) {
+  if (isInitialLoading || isCheckingAuth) {
     return (
       <div className={`flex h-screen overflow-hidden text-slate-900 dark:text-slate-50 transition-colors duration-200 ${
         viewMode === 'app' ? 'bg-white dark:bg-slate-800' : 'bg-slate-50 dark:bg-slate-900'
@@ -370,10 +397,7 @@ export function AppLayout() {
         activeCategoryId={activeCategoryId}
         onOpenCatManager={() => setIsCatManagerOpen(true)}
         onOpenBackup={() => setIsBackupModalOpen(true)}
-        onUnlockCategory={(cat) => {
-          setCatAuthModalData(cat);
-          setSidebarOpen(false);
-        }}
+        onUnlockCategory={requestCategoryUnlock}
       />
 
       {/* Main area */}
@@ -408,6 +432,7 @@ export function AppLayout() {
         />
 
         <MainContent
+          onUnlockCategory={requestCategoryUnlock}
           searchQuery={searchQuery}
           searchResults={searchResults}
           isBatchEditMode={isBatchEditMode}
@@ -432,7 +457,7 @@ export function AppLayout() {
 
       {/* Other Modals */}
       <Suspense fallback={null}>
-        {isModalOpen && (
+        {authToken && isModalOpen && (
           <LinkModal
             isOpen={isModalOpen}
             onClose={() => { setIsModalOpen(false); setEditingLink(undefined); setPrefillLink(undefined); }}
@@ -447,7 +472,7 @@ export function AppLayout() {
           />
         )}
 
-        {isCatManagerOpen && (
+        {authToken && isCatManagerOpen && (
           <CategoryManagerModal
             isOpen={isCatManagerOpen}
             onClose={() => setIsCatManagerOpen(false)}
@@ -460,7 +485,7 @@ export function AppLayout() {
           />
         )}
 
-        {isBackupModalOpen && (
+        {authToken && isBackupModalOpen && (
           <BackupModal
             isOpen={isBackupModalOpen}
             onClose={() => setIsBackupModalOpen(false)}
@@ -476,7 +501,7 @@ export function AppLayout() {
           />
         )}
 
-        {isImportModalOpen && (
+        {authToken && isImportModalOpen && (
           <ImportModal
             isOpen={isImportModalOpen}
             onClose={() => setIsImportModalOpen(false)}
@@ -486,7 +511,7 @@ export function AppLayout() {
           />
         )}
 
-        {isSettingsModalOpen && (
+        {authToken && isSettingsModalOpen && (
           <SettingsModal
             isOpen={isSettingsModalOpen}
             onClose={() => setIsSettingsModalOpen(false)}
@@ -515,7 +540,7 @@ export function AppLayout() {
           />
         )}
 
-        {isSearchConfigModalOpen && (
+        {authToken && isSearchConfigModalOpen && (
           <SearchConfigModal
             isOpen={isSearchConfigModalOpen}
             onClose={() => setIsSearchConfigModalOpen(false)}
@@ -527,7 +552,7 @@ export function AppLayout() {
             isOpen={true}
             category={catAuthModalData}
             onClose={() => setCatAuthModalData(null)}
-            onUnlock={(id) => { unlockCategory(id); setCatAuthModalData(null); }}
+            onUnlock={unlockCategory}
           />
         )}
 

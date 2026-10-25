@@ -18,7 +18,7 @@ type AuthAction =
 
 interface AuthContextValue extends AuthState {
   login: (password: string) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
 
@@ -46,7 +46,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 // --- Provider ---
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, {
-    authToken: localStorage.getItem(STORAGE_KEYS.AUTH_KEY),
+    authToken: null,
     requiresAuth: null,
     isCheckingAuth: true,
     capabilities: { upload: true },
@@ -55,9 +55,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const checkAuth = useCallback(async () => {
     dispatch({ type: 'SET_CHECKING', payload: true });
     try {
-      const res = await fetch(`${API_ENDPOINTS.STORAGE}?checkAuth=true`);
+      const storedToken = localStorage.getItem(STORAGE_KEYS.AUTH_KEY);
+      const res = await fetch(`${API_ENDPOINTS.STORAGE}?checkAuth=true`, { headers: { 'x-auth-password': storedToken || 'public' } });
       const data = await res.json();
-      dispatch({ type: 'SET_REQUIRES_AUTH', payload: data.requiresAuth });
+      dispatch({ type: 'SET_REQUIRES_AUTH', payload: false });
+      dispatch({ type: 'SET_TOKEN', payload: data.isAdmin ? storedToken : null });
+      if (!data.isAdmin) localStorage.removeItem(STORAGE_KEYS.AUTH_KEY);
       if (data.capabilities) {
         dispatch({ type: 'SET_CAPABILITIES', payload: data.capabilities });
       }
@@ -108,8 +111,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    const response = await fetch(API_ENDPOINTS.AUTH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-auth-password': localStorage.getItem(STORAGE_KEYS.AUTH_KEY) || '' },
+      body: JSON.stringify({ logout: true }),
+    });
+    if (!response.ok) throw new Error('退出登录失败，请重试');
     localStorage.removeItem(STORAGE_KEYS.AUTH_KEY);
+    localStorage.removeItem(STORAGE_KEYS.LOCAL_STORAGE_KEY);
     dispatch({ type: 'LOGOUT' });
   }, []);
 

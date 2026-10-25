@@ -9,9 +9,10 @@ import { PinnedSection } from '../link/PinnedSection';
 import { LinkCard } from '../link/LinkCard';
 import { Footer } from './Footer';
 import { BackToTop } from './BackToTop';
-import { LinkItem } from '../../../types';
+import { LinkItem, Category } from '../../../types';
 
 interface MainContentProps {
+  onUnlockCategory: (category: Category) => void;
   searchQuery: string;
   searchResults: LinkItem[];
   isBatchEditMode: boolean;
@@ -27,6 +28,7 @@ interface MainContentProps {
 }
 
 export function MainContent({
+  onUnlockCategory,
   searchQuery, searchResults, isBatchEditMode, selectedLinks,
   onToggleSelection, onEditLink, onDeleteLink, onContextMenu,
   isDragSortMode, isEditMode, onWeightChange, isInternal,
@@ -143,6 +145,7 @@ export function MainContent({
 
           return (
             <CategorySection
+              onUnlockCategory={onUnlockCategory}
               key={cat.id}
               category={cat}
               links={catLinks}

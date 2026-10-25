@@ -2,6 +2,7 @@
 // Cloudflare Workers API
 
 import { getKV, getCorsHeaders, jsonResponse } from './_kvAdapter.js';
+import { adminToken, sessionCookie } from './_access.js';
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -17,7 +18,14 @@ export async function onRequest(context) {
 
   try {
     const kv = getKV(env);
-    const { password } = await request.json();
+    const { password, logout } = await request.json();
+    if (logout) {
+      const token = adminToken(request);
+      if (/^[a-f0-9]{64}$/.test(token)) await kv.delete(`auth_token:${token}`);
+      return jsonResponse({ success: true }, 200, {
+        ...corsHeaders, 'Set-Cookie': sessionCookie(request, 'cloudnav_admin', '', 0),
+      });
+    }
 
     if (!env.PASSWORD) {
       return jsonResponse({ error: '服务器未配置管理员密码' }, 500, corsHeaders);
@@ -69,7 +77,7 @@ export async function onRequest(context) {
       success: true,
       token,
       message: '认证成功',
-    }, 200, corsHeaders);
+    }, 200, { ...corsHeaders, 'Set-Cookie': sessionCookie(request, 'cloudnav_admin', token, expirationTtl || 365 * 24 * 60 * 60) });
 
   } catch (err) {
     console.error('Auth API error:', err);

@@ -7,7 +7,7 @@ const callWebDavProxy = async (operation: 'check' | 'upload' | 'download', confi
     try {
         const response = await fetch('/api/webdav', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-auth-password': localStorage.getItem('cloudnav_auth_token') || '' },
             body: JSON.stringify({
                 operation,
                 config,
