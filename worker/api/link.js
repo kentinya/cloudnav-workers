@@ -21,6 +21,7 @@ export async function onRequest(context) {
   const isAuthenticated = await verifyAuth({
     providedPassword,
     serverPassword: env.PASSWORD,
+    r2: env.CLOUDNAV_R2,
     kv: getKV(env),
   });
 
@@ -79,7 +80,7 @@ export async function onRequest(context) {
 
     // 创建链接对象
     const newLink = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       title: newLinkData.title,
       url: newLinkData.url,
       description: newLinkData.description || '',

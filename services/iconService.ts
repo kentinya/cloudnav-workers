@@ -47,6 +47,7 @@ export class IconService {
       throw new Error('自定义API未配置');
     }
 
+    if (this.config.customapi.url === '/api/public-data?kind=icon') return `/api/public-data?kind=icon&url=${encodeURIComponent(url)}`;
     const response = await fetch(this.config.customapi.url, {
       method: 'POST',
       headers: {

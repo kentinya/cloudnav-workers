@@ -69,6 +69,7 @@ export async function onRequest(context) {
 
   const key = url.searchParams.get('key');
   const domain = url.searchParams.get('domain');
+  if (key?.startsWith('__cloudnav/')) return new Response('File Not Found', { status: 404 });
 
   if (!key && !domain) {
     return jsonResponse({ error: 'key or domain parameter required' }, 400, corsHeaders);

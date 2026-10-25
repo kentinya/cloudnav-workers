@@ -21,7 +21,8 @@ type LinksAction =
   | { type: 'SET_SYNC_STATUS'; payload: LinksState['syncStatus'] };
 
 interface LinksContextValue extends LinksState {
-  initLinks: (links: LinkItem[], verifiedToken?: string) => void;
+  initLinks: (links: LinkItem[], verifiedToken?: string, version?: string) => void;
+  saveNavigation: (body: { links?: LinkItem[]; categories?: Category[] }) => Promise<void>;
   isReadyToSave: () => boolean;
   addLink: (data: Omit<LinkItem, 'id' | 'createdAt'>) => void;
   updateLink: (link: LinkItem) => void;
@@ -68,51 +69,59 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
   const activeAuth = useRef(authToken);
   activeAuth.current = authToken;
   const loadedToken = useRef<string | null>(null);
+  const navigationVersion = useRef<string | null>(null);
+  const saving = useRef(false);
 
   const isReadyToSave = useCallback(() => Boolean(
-    authToken && activeAuth.current === authToken && loadedToken.current === authToken
+    authToken && activeAuth.current === authToken && loadedToken.current === authToken && navigationVersion.current
   ), [authToken]);
 
   useLayoutEffect(() => {
     loadedToken.current = null;
+    navigationVersion.current = null;
     dispatch({ type: 'SET_LINKS', payload: [] });
     localStorage.removeItem(STORAGE_KEYS.LOCAL_STORAGE_KEY);
   }, [authToken]);
 
   // 初始化（不触发同步）
-  const initLinks = useCallback((links: LinkItem[], verifiedToken?: string) => {
+  const initLinks = useCallback((links: LinkItem[], verifiedToken?: string, version?: string) => {
+    navigationVersion.current = version || null;
     loadedToken.current = verifiedToken && verifiedToken === activeAuth.current ? verifiedToken : null;
     dispatch({ type: 'SET_LINKS', payload: links });
   }, []);
 
-  // 同步到云端
-  const syncToCloud = useCallback(async (links: LinkItem[], categories: Category[], token: string, includeCategories: boolean) => {
+  // One version stream is shared by bookmark, category, import and restore writes.
+  const saveNavigation = useCallback(async (body: { links?: LinkItem[]; categories?: Category[] }) => {
+    if (!isReadyToSave()) throw new Error('管理员完整数据尚未加载，请刷新后重试');
+    if (saving.current) throw new Error('正在保存，请稍后再操作');
+    saving.current = true;
     dispatch({ type: 'SET_SYNC_STATUS', payload: 'saving' });
     try {
-      const res = await fetch(API_ENDPOINTS.STORAGE, {
+      const response = await fetch(API_ENDPOINTS.STORAGE, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-auth-password': token,
-        },
-        body: JSON.stringify(includeCategories ? { links, categories } : { links }),
+        headers: { 'Content-Type': 'application/json', 'x-auth-password': authToken! },
+        body: JSON.stringify({ ...body, version: navigationVersion.current }),
       });
-      if (res.status === 401) {
-        dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' });
-        toast.error('管理员会话已失效，请重新登录后再保存');
-        return false;
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || '保存失败，请刷新确认云端数据后重试');
       }
-      if (!res.ok) throw new Error('Sync failed');
+      if (activeAuth.current !== authToken) return;
+      const nextVersion = response.headers.get('X-Navigation-Version');
+      if (!nextVersion) throw new Error('保存响应缺少版本，请刷新后重试');
+      navigationVersion.current = nextVersion;
       dispatch({ type: 'SET_SYNC_STATUS', payload: 'saved' });
       setTimeout(() => dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' }), 2000);
-      return true;
-    } catch (e) {
-      console.error('Sync failed:', e);
-      toast.error('保存失败，请刷新确认云端数据后重试');
+    } catch (error) {
+      // A conflict or an ambiguous network result must be resolved by reloading,
+      // never by retrying an old full snapshot with a newly fetched version.
+      loadedToken.current = null;
       dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' });
-      return false;
+      throw error;
+    } finally {
+      saving.current = false;
     }
-  }, []);
+  }, [authToken, isReadyToSave]);
 
   const addLink = useCallback((data: Omit<LinkItem, 'id' | 'createdAt'>) => {
     const newLink: LinkItem = {
@@ -141,14 +150,19 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
 
   // 设置链接并同步（用于 updateData 场景）
   const setLinksAndSync = useCallback(async (links: LinkItem[], categories: Category[], includeCategories = false) => {
-    if (!isReadyToSave()) {
-      toast.error('管理员完整数据尚未加载，请刷新后重试');
+    try {
+      const normalized = links.map(normalizeLinkIcon) as LinkItem[];
+      await saveNavigation(includeCategories ? { links: normalized, categories } : { links: normalized });
+      if (activeAuth.current === authToken) {
+        dispatch({ type: 'SET_LINKS', payload: normalized });
+        cachePublicNavigation(normalized, categories);
+      }
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '保存失败，请刷新后重试');
       return false;
     }
-    dispatch({ type: 'SET_LINKS', payload: links });
-    cachePublicNavigation(links, categories);
-    return syncToCloud(links.map(normalizeLinkIcon), categories, authToken!, includeCategories);
-  }, [isReadyToSave, authToken, syncToCloud]);
+  }, [saveNavigation, authToken]);
 
   // 置顶链接
   const pinnedLinks = useMemo(() =>
@@ -174,7 +188,7 @@ export function LinksProvider({ children }: { children: React.ReactNode }) {
   return (
     <LinksContext.Provider value={{
       ...state,
-      initLinks, isReadyToSave,
+      initLinks, isReadyToSave, saveNavigation,
       addLink, updateLink, deleteLink, deleteLinks,
       updateLinks, setLinksAndSync, pinnedLinks, getLinksByCategory,
     }}>

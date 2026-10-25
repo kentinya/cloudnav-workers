@@ -89,7 +89,7 @@ export function CategoriesProvider({ children }: { children: React.ReactNode }) 
   });
 
   const { authToken } = useAuthContext();
-  const { initLinks, isReadyToSave } = useLinksContext();
+  const { initLinks, isReadyToSave, saveNavigation } = useLinksContext();
   const activeAuth = useRef(authToken);
   activeAuth.current = authToken;
 
@@ -117,7 +117,7 @@ export function CategoriesProvider({ children }: { children: React.ReactNode }) 
     if (!Array.isArray(data.links) || !Array.isArray(data.categories) || (authToken && data.isAdmin !== true)) {
       throw new Error('管理员完整数据尚未加载，请刷新后重试');
     }
-    initLinks(data.links, authToken || undefined);
+    initLinks(data.links, authToken || undefined, data.version);
     dispatch({ type: 'SET_CATEGORIES', payload: data.categories });
     cachePublicNavigation(data.links, data.categories);
   }, [authToken, initLinks]);
@@ -138,14 +138,9 @@ export function CategoriesProvider({ children }: { children: React.ReactNode }) 
   const setCategoriesAndSync = useCallback(async (categories: Category[], links: LinkItem[]) => {
     if (!authToken) throw new Error('请先登录管理员');
     if (!isReadyToSave()) throw new Error('管理员完整数据尚未加载，请刷新后重试');
-    const response = await fetch(API_ENDPOINTS.STORAGE, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-auth-password': authToken },
-      body: JSON.stringify({ categories }),
-    });
-    if (!response.ok) throw new Error((await response.json()).error || '保存分类失败');
+    await saveNavigation({ categories });
     await reloadNavigation();
-  }, [authToken, reloadNavigation, isReadyToSave]);
+  }, [authToken, reloadNavigation, isReadyToSave, saveNavigation]);
 
   const categoryTree = useMemo(() => buildCategoryTree(state.categories), [state.categories]);
 

@@ -1,3 +1,4 @@
+import { verifySession } from './_sessions.js';
 // Cloudflare Workers KV 与 API 辅助函数
 
 /**
@@ -24,6 +25,7 @@ export function getCorsHeaders(env) {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, x-auth-password',
+    'Access-Control-Expose-Headers': 'X-Navigation-Version',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -36,7 +38,7 @@ export function getCorsHeaders(env) {
  * @param {object} params.kv - KV 实例
  * @returns {Promise<boolean>}
  */
-export async function verifyAuth({ providedPassword, serverPassword, kv }) {
+export async function verifyAuth({ providedPassword, serverPassword, kv, r2 }) {
   if (!serverPassword || !providedPassword) return false;
 
   // 直接匹配密码
@@ -49,10 +51,9 @@ export async function verifyAuth({ providedPassword, serverPassword, kv }) {
     return false;
   }
 
-  // 查 KV 中的 Token
+  // R2 会话/撤销记录优先于旧 KV Token，避免 KV 延迟复活已退出会话
   try {
-    const tokenVal = await kv.get(`auth_token:${providedPassword}`);
-    return tokenVal === 'valid';
+    return await verifySession(r2, providedPassword, kv);
   } catch {
     return false;
   }

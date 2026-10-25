@@ -19,6 +19,7 @@ export async function onRequest(context) {
   const isAuthenticated = await verifyAuth({
     providedPassword: token,
     serverPassword: env.PASSWORD,
+    r2: env.CLOUDNAV_R2,
     kv: getKV(env),
   });
 

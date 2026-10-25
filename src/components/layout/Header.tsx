@@ -1,4 +1,5 @@
 import React from 'react';
+import { toast } from '../../../components/Toast';
 import { Search, X, Plus, Moon, Sun, Menu, Settings, Upload, CheckSquare, LogOut, Lock, GripVertical, Edit3, MoreHorizontal, Layers } from 'lucide-react';
 import { useConfigContext } from '../../contexts/ConfigContext';
 import { useAuthContext } from '../../contexts/AuthContext';
@@ -422,7 +423,7 @@ export function Header({
                   </button>
 
                   {/* Logout */}
-                  <button onClick={logout} className="flex items-center justify-center p-2 rounded-full text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 h-[36px] min-w-[36px] cursor-pointer" title="退出登录">
+                  <button onClick={() => { void logout().catch(() => toast.error('退出登录失败，请重试')); }} className="flex items-center justify-center p-2 rounded-full text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 h-[36px] min-w-[36px] cursor-pointer" title="退出登录">
                     <LogOut size={18} />
                   </button>
                 </div>

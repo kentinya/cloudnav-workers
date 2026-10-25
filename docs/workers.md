@@ -1,6 +1,6 @@
 # Cloudflare Workers 网页部署教程
 
-项目使用一个 Worker 同时提供 React 静态页面和 `/api/*` 接口，书签和配置存入 Workers KV，上传图标和图标缓存存入 R2。
+项目使用一个 Worker 同时提供 React 静态页面和 `/api/*` 接口，书签和配置存入 Workers KV，上传图标和图标缓存存入 R2；R2 同时保存原子导航版本指针及管理员会话撤销记录。
 部署通过 Cloudflare 网页控制台完成，无需在电脑上安装开发工具。
 
 ## 一键部署
@@ -40,7 +40,7 @@
 首次部署会根据 `wrangler.jsonc` 自动创建并绑定：
 
 - **`CLOUDNAV_KV`**：保存分类、书签、站点配置和登录 Token。
-- **`CLOUDNAV_R2`**：保存上传图标及缓存图标。无需开启存储桶公开访问。
+- **`CLOUDNAV_R2`**：保存上传图标、缓存图标、导航版本指针及管理员会话记录。无需开启存储桶公开访问。
 - **`ASSETS`**：提供构建生成的 `dist` 静态页面，由 Workers Static Assets 配置。
 
 如果页面没有显示 `PASSWORD` 输入项，或部署后登录提示“服务器未配置管理员密码”，在控制台补充：
@@ -85,7 +85,7 @@
 | --- | --- | --- |
 | `ASSETS` | 静态资源绑定 | 由 `wrangler.jsonc` 的 `assets` 自动配置 |
 | `CLOUDNAV_KV` | KV 绑定 | 保存书签等数据，部署时自动创建；在 Worker 的 Bindings 中检查 |
-| `CLOUDNAV_R2` | R2 绑定 | 保存图标，部署时自动创建；在 Worker 的 Bindings 中检查 |
+| `CLOUDNAV_R2` | R2 绑定 | 保存图标、版本指针和会话记录，部署时自动创建；在 Worker 的 Bindings 中检查 |
 | `PASSWORD` | 运行时 Secret（必填） | 一键部署时填写，或在 Settings → Variables and Secrets 中添加 |
 | `ALLOWED_ORIGIN` | 可选普通变量 | 跨域来源限制，默认 `*`；需要限制时，在自己的仓库 `wrangler.jsonc` 的 `vars` 中添加 |
 

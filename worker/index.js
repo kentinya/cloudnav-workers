@@ -1,3 +1,4 @@
+import { onRequest as publicData } from './api/public-data.js'
 import { onRequest as categoryAuth } from './api/category-auth.js'
 import { onRequest as auth } from './api/auth.js'
 import { onRequest as storage } from './api/storage.js'
@@ -7,11 +8,13 @@ import { onRequest as upload } from './api/upload.js'
 import { onRequest as migrateIcons } from './api/migrate-icons.js'
 import { onRequest as webdav } from './api/webdav.js'
 import { onRequest as debug } from './api/debug.js'
+import { navigationTransaction } from './api/_navigation.js'
 import { getCorsHeaders, jsonResponse } from './api/_kvAdapter.js'
 
 // Explicit routes for the Cloudflare Worker API.
 const routes = new Map([
   ['/api/auth', auth],
+  ['/api/public-data', publicData],
   ['/api/category-auth', categoryAuth],
   ['/api/storage', storage],
   ['/api/link', link],
@@ -33,14 +36,19 @@ export default {
       }
 
       try {
-        const response = await handler({ request, env })
+        // Stage every navigation writer, including extension adds and icon migration.
+        const body = request.method === 'POST' && pathname === '/api/storage' ? await request.clone().json() : {}
+        const transaction = env.CLOUDNAV_KV ? await navigationTransaction(env, body.version, pathname === '/api/storage') : null
+        const response = await handler({ request, env: transaction ? { ...env, CLOUDNAV_KV: transaction.kv } : env })
+        if (response.ok) await transaction?.commit()
         const headers = new Headers(response.headers)
+        if (transaction?.committedVersion) headers.set('X-Navigation-Version', transaction.committedVersion)
         headers.set('Cache-Control', 'private, no-store')
         headers.set('Vary', 'Cookie, x-auth-password')
         return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
       } catch (error) {
-        console.error('Worker API error:', error)
-        return jsonResponse({ error: 'Internal Server Error' }, 500, getCorsHeaders(env))
+        if (!error.status) console.error('Worker API error:', error)
+        return jsonResponse({ error: error.status ? error.message : 'Internal Server Error' }, error.status || 500, { ...getCorsHeaders(env), 'Cache-Control': 'private, no-store' })
       }
     }
 

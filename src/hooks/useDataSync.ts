@@ -21,13 +21,13 @@ export function useDataSync() {
   activeAuth.current = authToken;
 
   // 从 KV 加载链接和分类
-  const loadFromCloud = useCallback(async (): Promise<{ links: LinkItem[]; categories: Category[] } | null> => {
+  const loadFromCloud = useCallback(async (): Promise<{ links: LinkItem[]; categories: Category[]; version?: string } | null> => {
     try {
       const res = await fetch(`${API_ENDPOINTS.STORAGE}?getConfig=true&readOnly=true${authToken ? '&admin=true' : ''}`, { headers: { 'x-auth-password': authToken || 'public' } });
       if (!res.ok) return null;
       const data = await res.json();
-      if (Array.isArray(data.links) && Array.isArray(data.categories) && (!authToken || data.isAdmin === true)) {
-        return { links: data.links || [], categories: data.categories || [] };
+      if (Array.isArray(data.links) && Array.isArray(data.categories) && (!authToken || (data.isAdmin === true && typeof data.version === 'string'))) {
+        return { links: data.links || [], categories: data.categories || [], version: data.version };
       }
       return null;
     } catch (e) {
@@ -100,7 +100,7 @@ export function useDataSync() {
       if (!cats.some((c: Category) => c.id === 'common')) {
         cats = [{ id: 'common', name: '常用推荐', icon: 'Star' }, ...cats];
       }
-      initLinks(visibleLinks, authToken || undefined);
+      initLinks(visibleLinks, authToken || undefined, cloud.version);
       initCategories(cats);
       cachePublicNavigation(visibleLinks, cats);
       return true;

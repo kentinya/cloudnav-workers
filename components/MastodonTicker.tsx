@@ -52,7 +52,7 @@ const MastodonTicker: React.FC<TickerProps> = ({ config, isCollapsed }) => {
 
         if (config.source === 'mastodon' && config.mastodonInstance && config.mastodonUsername) {
           fetchedItems = await fetchMastodon(config);
-        } else if (config.source === 'memos' && config.memosHost) {
+        } else if (config.source === 'memos') {
           fetchedItems = await fetchMemos(config);
         } else if (config.source === 'custom' && config.customItems) {
           fetchedItems = config.customItems
@@ -238,42 +238,10 @@ async function fetchMastodon(config: any): Promise<TickerItem[]> {
 
 // Memos 数据获取
 async function fetchMemos(config: any): Promise<TickerItem[]> {
-  const host = config.memosHost?.replace(/\/$/, '');
-  const headers: Record<string, string> = { 'Accept': 'application/json' };
-  if (config.memosToken) {
-    headers['Authorization'] = `Bearer ${config.memosToken}`;
-  }
-
-  // 构建 filter 参数，creator 格式：users/xxx
-  let filter = '';
-  const celFilters = [];
-  
-  if (config.memosCreator) {
-    celFilters.push(`creator == "users/${config.memosCreator}"`);
-  }
-  
-  // 添加 visibility 过滤，默认为 PUBLIC
-  const visibility = config.memosVisibility || 'PUBLIC';
-  celFilters.push(`visibility == "${visibility}"`);
-
-  if (celFilters.length > 0) {
-    filter = `&filter=${encodeURIComponent(celFilters.join(' && '))}`;
-  }
-
-  const res = await fetch(`${host}/api/v1/memos?pageSize=${config.memosLimit || 10}${filter}`, { headers });
+  const res = await fetch('/api/public-data?kind=memos');
   if (!res.ok) throw new Error('Memos fetch failed');
-
-  const data = await res.json();
-  const memos = data.memos || data || [];
-
-  return memos.map((m: any) => {
-    const content = (m.content || m.plainText || '').trim();
-    return {
-      id: m.uid || m.name || String(m.id),
-      content: processTickerContent(content.substring(0, 120)),
-      url: m.url || `${host}/${m.name || m.uid}`,
-    };
-  }).filter((m: TickerItem) => m.content.length > 0);
+  const items = await res.json();
+  return items.map((item: TickerItem) => ({ ...item, content: processTickerContent(item.content) }));
 }
 
 export default MastodonTicker;

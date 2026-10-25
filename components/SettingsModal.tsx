@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Save, Settings, Clock, LayoutGrid, MessageCircle, Cloud, BookOpen, Upload, CloudCog, LogOut, Loader2, Plus, Trash2, Search, Shield } from 'lucide-react';
 import { AIConfig, PasswordExpiryConfig, TickerConfig, WeatherConfig, WeatherProvider, TickerSource, SearchConfig, IconConfig, ViewMode } from '../types';
+import { useAuthContext } from '../src/contexts/AuthContext';
 import { toast } from './Toast';
 import { SEARCH_ENGINES, DEFAULT_ICON_CONFIG } from '../src/constants';
 
@@ -62,6 +63,7 @@ interface SettingsModalProps {
 const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen, onClose, authToken, onSettingsLoaded, onImportClick, onBackupClick, supportsUpload = true
 }) => {
+  const { logout } = useAuthContext();
   const [settings, setSettings] = useState<SettingsData>(DEFAULT_SETTINGS);
   const [loadedToken, setLoadedToken] = useState<string | null>(null);
   const loadedConfig = useRef<Record<string, any>>({});
@@ -231,12 +233,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     });
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('cloudnav_auth_token');
-    localStorage.removeItem('lastLoginTime');
-    window.dispatchEvent(new CustomEvent('authStateChanged', { detail: { isAuthenticated: false } }));
-    onClose();
-    toast.success('已成功退出登录');
+  const handleLogout = async () => {
+    try {
+      await logout();
+      onClose();
+      toast.success('已成功退出登录');
+    } catch {
+      toast.error('退出登录失败，请重试');
+    }
   };
 
   const handleMigrateIcons = async () => {

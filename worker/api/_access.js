@@ -21,7 +21,7 @@ export function adminToken(request) {
 }
 
 export async function isAdmin(request, env, kv = getKV(env)) {
-  return verifyAuth({ providedPassword: adminToken(request), serverPassword: env.PASSWORD, kv });
+  return verifyAuth({ providedPassword: adminToken(request), serverPassword: env.PASSWORD, kv, r2: env.CLOUDNAV_R2 });
 }
 
 export function isPrivate(category) {
@@ -107,6 +107,27 @@ export async function safeCategories(categories, allowed, admin = false) {
 export async function prepareCategories(input, previous) {
   if (!Array.isArray(input)) throw new Error('分类数据必须是数组');
   const ids = new Set();
+  // Reparent surviving children when their parent is removed. Preserve inherited
+  // privacy by copying the removed private ancestor's verifier to its child.
+  input = input.map(item => {
+    if (!item) return item;
+    const category = { ...item };
+    const seen = new Set();
+    while (category.parentId && !input.some(candidate => candidate?.id === category.parentId)) {
+      if (seen.has(category.parentId)) throw new Error('父分类无效或存在循环');
+      seen.add(category.parentId);
+      const parent = previous.find(candidate => candidate.id === category.parentId);
+      if (!parent) break;
+      if (isPrivate(parent) && !isPrivate(category)) {
+        category.visibility = 'private';
+        if (parent.passwordHash) category.passwordHash = parent.passwordHash;
+        else category.password = parent.password;
+      }
+      category.parentId = parent.parentId;
+      category.isSubcategory = !!category.parentId;
+    }
+    return category;
+  });
   const prepared = [];
   for (const item of input) {
     if (!item || typeof item.id !== 'string' || !item.id || ids.has(item.id) || typeof item.name !== 'string' || !item.name.trim()) {

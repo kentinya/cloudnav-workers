@@ -57,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const storedToken = localStorage.getItem(STORAGE_KEYS.AUTH_KEY);
       const res = await fetch(`${API_ENDPOINTS.STORAGE}?checkAuth=true`, { headers: { 'x-auth-password': storedToken || 'public' } });
+      if (!res.ok) throw new Error('会话检查暂时失败');
       const data = await res.json();
       dispatch({ type: 'SET_REQUIRES_AUTH', payload: false });
       dispatch({ type: 'SET_TOKEN', payload: data.isAdmin ? storedToken : null });
@@ -119,6 +120,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     if (!response.ok) throw new Error('退出登录失败，请重试');
     localStorage.removeItem(STORAGE_KEYS.AUTH_KEY);
+    localStorage.removeItem('lastLoginTime');
     localStorage.removeItem(STORAGE_KEYS.LOCAL_STORAGE_KEY);
     dispatch({ type: 'LOGOUT' });
   }, []);

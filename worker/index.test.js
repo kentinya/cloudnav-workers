@@ -21,11 +21,23 @@ function createEnv(onWrite = () => {}) {
       },
     },
     CLOUDNAV_R2: {
-      async put(key, value) {
-        objects.set(key, value)
+      async put(key, value, options = {}) {
+        const existing = objects.get(key)
+        const condition = options.onlyIf
+        const matches = condition instanceof Headers ? condition.get('If-Match') : condition?.etagMatches
+        const absent = condition instanceof Headers ? condition.get('If-None-Match') === '*' : condition?.etagDoesNotMatch === '*'
+        if ((matches && existing?.etag !== matches) || (absent && existing)) return null
+        const object = { value, etag: crypto.randomUUID() }
+        objects.set(key, object)
+        return { etag: object.etag }
       },
       async get(key) {
-        return objects.has(key) ? { arrayBuffer: async () => objects.get(key) } : null
+        const object = objects.get(key)
+        return object ? {
+          etag: object.etag,
+          json: async () => JSON.parse(object.value),
+          arrayBuffer: async () => typeof object.value === 'string' ? new TextEncoder().encode(object.value).buffer : object.value,
+        } : null
       },
       async delete(key) {
         objects.delete(key)
@@ -35,7 +47,13 @@ function createEnv(onWrite = () => {}) {
   }
 }
 
-function request(env, path, { data, token, method = data ? 'POST' : 'GET', headers = {} } = {}) {
+async function request(env, path, { data, token, method = data ? 'POST' : 'GET', headers = {}, unversioned = false } = {}) {
+  // Existing API scenarios explicitly load the revision before editing. Conflict
+  // scenarios below supply their own (possibly old/missing) revision.
+  if (!unversioned && data && path === '/api/storage' && (data.links || data.categories || data.key === 'cate_config' || data.key?.startsWith('links:')) && data.version === undefined) {
+    const snapshot = await (await request(env, '/api/storage?getConfig=true&admin=true', { token, headers })).json()
+    data = { ...data, version: snapshot.version }
+  }
   if (data) headers['Content-Type'] = 'application/json'
   if (token) headers['x-auth-password'] = token
   return worker.fetch(
@@ -61,6 +79,7 @@ test('every public API handles preflight, including icon deletion', async () => 
   for (const endpoint of [
     'auth',
     'category-auth',
+    'public-data',
     'storage',
     'link',
     'favicon',
@@ -216,9 +235,9 @@ test('bulk icon caching saves files to R2 and persists the new bookmark URLs', a
 
 test('missing R2 bindings fail explicitly instead of reporting successful icon deletion', async () => {
   const env = createEnv()
-  delete env.CLOUDNAV_R2
   const token = await login(env)
-  const response = await request(env, '/api/upload?key=icon.png', { method: 'DELETE', token })
+  delete env.CLOUDNAV_R2
+  const response = await request(env, '/api/upload?key=icon.png', { method: 'DELETE', token: env.PASSWORD })
   assert.equal(response.status, 500)
   assert.match((await response.json()).error, /CLOUDNAV_R2/)
 })
@@ -247,6 +266,7 @@ async function unlock(env, categoryId, password, cookie = '') {
     data: { categoryId, password }, headers: { Cookie: cookie },
   })
   assert.equal(response.status, 200, await response.clone().text())
+  assert.equal(response.headers.get('X-Navigation-Version'), null)
   const setCookie = response.headers.get('Set-Cookie')
   assert.match(setCookie, /HttpOnly/)
   assert.match(setCookie, /SameSite=Lax/)
@@ -298,7 +318,9 @@ test('category grants unlock only that category and public descendants, never ad
     assert.equal(response.status, 401, path)
   }
   assert.equal((await request(env, '/api/debug', { headers, token: categoryToken })).status, 401)
-  assert.equal((await request(env, '/api/storage', { token: 'alpha-password', data: { categories: [] } })).status, 401)
+  const forbidden = await request(env, '/api/storage', { token: 'alpha-password', data: { categories: [] } })
+  assert.equal(forbidden.status, 401)
+  assert.equal(forbidden.headers.get('X-Navigation-Version'), null)
   assert.equal((await request(env, '/api/storage?key=links:a', { headers })).status, 401)
 })
 
@@ -332,7 +354,7 @@ test('passwords are hashed, blank edits preserve them, changes revoke grants, an
 
   const restored = createEnv()
   const restoreToken = await login(restored)
-  assert.equal((await request(restored, '/api/storage', { token: restoreToken, data: adminData })).status, 200)
+  assert.equal((await request(restored, '/api/storage', { token: restoreToken, data: { links: adminData.links, categories: adminData.categories } })).status, 200)
   await unlock(restored, 'b', 'beta-password')
   assert.equal((await request(restored, '/api/storage', {
     token: restoreToken, data: { categories: [{ id: 'empty', name: 'Private', visibility: 'private' }] },
@@ -441,6 +463,7 @@ test('administrator hydration fails closed when a token expires or is not availa
   assert.equal(full.links.length, links.length)
   const publicData = await (await request(env, '/api/storage?getConfig=true', { token: 'public' })).json()
   assert.equal(publicData.isAdmin, false)
+  assert.equal(publicData.version, undefined)
   assert.equal(publicData.links.length, 1)
 })
 
@@ -491,4 +514,221 @@ test('bookmark-only edits preserve category metadata/password verifiers and all 
   assert.equal(await env.CLOUDNAV_KV.get('config:website'), config)
   const saved = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
   assert.deepEqual(saved.links, edited)
+})
+
+test('public configuration whitelists hide all weather, memos and icon credentials in legacy and section settings', async () => {
+  const secret = 'must-never-be-public'
+  const sections = {
+    weather: { enabled: true, provider: 'openweather', unit: 'celsius', qweatherApiKey: secret, openweatherApiKey: secret, visualcrossingApiKey: secret, accuweatherApiKey: secret, futureCredential: secret },
+    mastodon: { enabled: true, source: 'memos', memosHost: `https://memos.example?token=${secret}`, memosToken: secret, memosVisibility: 'PRIVATE', customItems: ['public ticker'] },
+    icon: { source: 'customapi', cacheEnabled: false, google: { enabled: true, apiKey: secret }, customapi: { enabled: true, url: `https://icons.example?key=${secret}`, headers: { Authorization: secret } }, customurl: { enabled: true, url: `https://icons.example/{domain}?key=${secret}` } },
+  }
+  for (const layout of ['legacy', 'sections']) {
+    const env = createEnv()
+    const token = await login(env)
+    if (layout === 'legacy') await env.CLOUDNAV_KV.put('config', JSON.stringify({ ...sections, ticker: sections.mastodon }))
+    else for (const [section, config] of Object.entries(sections)) await env.CLOUDNAV_KV.put(`config:${section}`, JSON.stringify(config))
+    for (const section of Object.keys(sections)) {
+      const response = await request(env, `/api/storage?getConfig=${section}`, { token: 'public' })
+      const text = await response.text()
+      assert.equal(response.status, 200)
+      assert.doesNotMatch(text, /must-never-be-public|ApiKey|apiKey|memosToken|Authorization|futureCredential/)
+      const admin = await (await request(env, `/api/storage?getConfig=${section}`, { token })).json()
+      assert.deepEqual(admin, sections[section])
+    }
+  }
+})
+
+test('weather and Memos proxies retain guest functionality without returning secrets or private Memos', async t => {
+  const env = createEnv()
+  await env.CLOUDNAV_KV.put('config:weather', JSON.stringify({ enabled: true, provider: 'openweather', openweatherApiKey: 'weather-secret', openweatherCity: 'Shanghai' }))
+  await env.CLOUDNAV_KV.put('config:mastodon', JSON.stringify({ enabled: true, source: 'memos', memosHost: 'https://memos.example', memosToken: 'memos-secret', memosVisibility: 'PRIVATE' }))
+  const upstream = t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (String(url).includes('openweathermap')) {
+      assert.equal(new URL(url).searchParams.get('appid'), 'weather-secret')
+      return Response.json({ main: { temp: 21 }, weather: [{ main: 'Clouds' }], name: 'Shanghai', ignoredKey: 'weather-secret' })
+    }
+    assert.equal(options.headers.Authorization, 'Bearer memos-secret')
+    assert.match(new URL(url).searchParams.get('filter'), /visibility == "PUBLIC"/)
+    return Response.json({ memos: [{ uid: '1', content: 'Public note', visibility: 'PUBLIC' }, { uid: '2', content: 'PRIVATE NOTE', visibility: 'PRIVATE' }], ignoredToken: 'memos-secret' })
+  })
+  const weather = await (await request(env, '/api/public-data?kind=weather')).json()
+  assert.deepEqual(weather, { weatherText: 'Clouds 21°C', region: 'Shanghai' })
+  const memos = await (await request(env, '/api/public-data?kind=memos')).json()
+  assert.equal(memos.length, 1)
+  assert.equal(memos[0].content, 'Public note')
+  assert.doesNotMatch(JSON.stringify(memos), /memos-secret|PRIVATE NOTE/)
+  assert.equal(upstream.mock.callCount(), 2)
+})
+
+test('icon proxy keeps credentials server-side and refuses access to locked bookmark targets', async t => {
+  const { env } = await privacyFixture()
+  await env.CLOUDNAV_KV.put('config:icon', JSON.stringify({ source: 'customapi', customapi: { enabled: true, url: 'https://icons.example', headers: { Authorization: 'icon-secret' } } }))
+  const bytes = new Uint8Array([0, 0, 1, 0])
+  const upstream = t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (String(url) === 'https://icons.example/') {
+      assert.equal(options.headers.Authorization, 'icon-secret')
+      assert.deepEqual(JSON.parse(options.body), { url: 'https://common.example/' })
+      return Response.json({ iconUrl: 'https://images.example/icon?token=icon-secret' })
+    }
+    return new Response(bytes, { headers: { 'Content-Type': 'image/x-icon' } })
+  })
+  const response = await request(env, '/api/public-data?kind=icon&url=https%3A%2F%2Fcommon.example')
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('Location'), null)
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), bytes)
+  assert.equal((await request(env, '/api/public-data?kind=icon&url=https%3A%2F%2Fa.example')).status, 404)
+  assert.equal((await request(env, '/api/public-data?kind=icon&url=https%3A%2F%2Funlisted.example')).status, 404)
+  assert.equal(upstream.mock.callCount(), 2)
+})
+
+test('stale/missing versions are rejected on every raw and structured bookmark write route', async () => {
+  const { env, token, links } = await privacyFixture()
+  const old = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  const changed = links.map(link => ({ ...link, title: 'new committed title' }))
+  const accepted = await request(env, '/api/storage', { token, data: { links: changed, version: old.version } })
+  assert.equal(accepted.status, 200)
+  assert.notEqual(accepted.headers.get('X-Navigation-Version'), old.version)
+  for (const body of [{ links }, { saveConfig: 'links', links }, { saveConfig: 'links', categoryId: 'a', links }, { key: 'links:a', value: JSON.stringify(links) }, { categories: old.categories }, { key: 'cate_config', value: JSON.stringify(old.categories) }]) {
+    assert.equal((await request(env, '/api/storage', { token, data: { ...body, version: old.version } })).status, 409)
+    assert.equal((await request(env, '/api/storage', { token, data: body, unversioned: true })).status, 428)
+  }
+  const current = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  assert.deepEqual(current.links, changed)
+})
+
+test('concurrent edits including first publication admit exactly one writer, even from the same revision', async () => {
+  for (const initialized of [false, true]) {
+    const env = createEnv()
+    const token = await login(env)
+    if (initialized) await request(env, '/api/storage', { token, data: { categories: [{ id: 'common', name: 'Public' }], links: [] } })
+    const { version } = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+    const candidates = ['a', 'b'].map(id => [{ id, categoryId: 'common', title: id }])
+    const results = await Promise.all(candidates.map(links => request(env, '/api/storage', { token, data: { version, links } })))
+    assert.deepEqual(results.map(result => result.status).sort(), [200, 409])
+    const winner = results.findIndex(result => result.status === 200)
+    const saved = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+    assert.deepEqual(saved.links, candidates[winner])
+  }
+})
+
+test('stale mutable KV mirrors cannot resurrect data, and missing immutable snapshots fail closed', async t => {
+  const { env, token } = await privacyFixture()
+  const originalGet = env.CLOUDNAV_KV.get.bind(env.CLOUDNAV_KV)
+  const originalPut = env.CLOUDNAV_KV.put.bind(env.CLOUDNAV_KV)
+  const staleCategories = await originalGet('cate_config')
+  const staleLinks = await originalGet('links:common')
+  const old = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  const updated = old.links.map(link => link.id === 'bookmark-common' ? { ...link, title: 'new snapshot' } : link)
+  // A different replica never observes updates to old mutable buckets.
+  t.mock.method(env.CLOUDNAV_KV, 'put', async (key, ...args) => {
+    if (key === 'cate_config' || key.startsWith('links:')) return
+    return originalPut(key, ...args)
+  })
+  assert.equal((await request(env, '/api/storage', { token, data: { links: updated, version: old.version } })).status, 200)
+  assert.equal(await originalGet('cate_config'), staleCategories)
+  assert.equal(await originalGet('links:common'), staleLinks)
+  assert.equal((await (await request(env, '/api/storage?getConfig=true', { token: 'public' })).json()).links[0].title, 'new snapshot')
+  assert.equal((await request(env, '/api/storage', { token, data: { links: old.links, version: old.version } })).status, 409)
+  t.mock.method(env.CLOUDNAV_KV, 'get', async (key, ...args) => key.startsWith('navigation_snapshot:') ? null : originalGet(key, ...args))
+  assert.equal((await (await request(env, '/api/storage?checkAuth=true', { token })).json()).isAdmin, true)
+  assert.equal((await request(env, '/api/storage?getConfig=weather', { token: 'public' })).status, 200)
+  assert.equal((await request(env, '/api/storage', { token, data: { saveConfig: 'weather', config: { enabled: false } } })).status, 200)
+  assert.equal((await request(env, '/api/storage?getConfig=true&admin=true', { token })).status, 503)
+  assert.equal((await request(env, '/api/storage', { token, data: { links: [], version: old.version } })).status, 503)
+})
+
+test('extension adds and icon migration advance the same revision and cannot overwrite concurrent edits', async t => {
+  const { env, token, links } = await privacyFixture()
+  const old = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  assert.equal((await request(env, '/api/link', { token, data: { title: 'extension', url: 'https://new.example', categoryId: 'common' } })).status, 200)
+  assert.equal((await request(env, '/api/storage', { token, data: { links, version: old.version } })).status, 409)
+  // Hold migration's network request while an editor commits a newer snapshot.
+  await request(env, '/api/storage', { token, data: { links: [{ id: 'remote', categoryId: 'common', url: 'https://remote.example' }] } })
+  let entered; let release
+  const started = new Promise(resolve => { entered = resolve })
+  const held = new Promise(resolve => { release = resolve })
+  t.mock.method(globalThis, 'fetch', async () => { entered(); await held; return new Response(new Uint8Array([0, 0, 1, 0])) })
+  const migration = request(env, '/api/migrate-icons', { method: 'POST', token })
+  await started
+  await request(env, '/api/storage', { token, data: { links: [{ id: 'newer', categoryId: 'common', url: 'https://latest.example' }] } })
+  release()
+  assert.equal((await migration).status, 409)
+  const saved = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  assert.equal(saved.links[0].id, 'newer')
+})
+
+test('logout revokes both header/cookie tokens despite stale KV and fails closed on revocation errors', async t => {
+  const env = createEnv()
+  const token = await login(env)
+  const legacy = 'a'.repeat(64)
+  await env.CLOUDNAV_KV.put(`auth_token:${legacy}`, 'valid')
+  const get = env.CLOUDNAV_KV.get.bind(env.CLOUDNAV_KV)
+  t.mock.method(env.CLOUDNAV_KV, 'get', async (key, ...args) => key.startsWith('auth_token:') ? 'valid' : get(key, ...args))
+  const response = await request(env, '/api/auth', { token, headers: { Cookie: `cloudnav_admin=${legacy}` }, data: { logout: true } })
+  assert.equal(response.status, 200)
+  assert.match(response.headers.get('Set-Cookie'), /cloudnav_admin=;.*Max-Age=0/)
+  for (const revoked of [token, legacy]) {
+    for (const headers of [{ 'x-auth-password': revoked }, { Cookie: `cloudnav_admin=${revoked}` }]) {
+      const check = await (await request(env, '/api/storage?checkAuth=true', { headers })).json()
+      assert.equal(check.isAdmin, false)
+      assert.equal((await request(env, '/api/storage', { headers, data: { saveConfig: 'website', config: {} } })).status, 401)
+    }
+  }
+  const current = await login(env)
+  const put = env.CLOUDNAV_R2.put.bind(env.CLOUDNAV_R2)
+  t.mock.method(env.CLOUDNAV_R2, 'put', async (key, ...args) => { if (key.startsWith('__cloudnav/session/')) throw new Error('Unavailable'); return put(key, ...args) })
+  t.mock.method(console, 'error', () => {})
+  const failed = await request(env, '/api/auth', { token: current, data: { logout: true } })
+  assert.equal(failed.status, 500)
+  assert.equal(failed.headers.get('Set-Cookie'), null)
+})
+
+test('category deletion atomically migrates bookmarks, reparents children, and preserves inherited privacy', async () => {
+  const { env, token, links } = await privacyFixture()
+  const snapshot = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  const children = snapshot.categories.filter(category => category.id !== 'a')
+  assert.equal((await request(env, '/api/storage', { token, data: { categories: children, version: snapshot.version } })).status, 200)
+  const saved = await (await request(env, '/api/storage?getConfig=true&admin=true', { token })).json()
+  assert.equal(saved.links.length, links.length)
+  assert.equal(saved.links.find(link => link.id === 'bookmark-a').categoryId, 'common')
+  assert.equal(saved.categories.find(category => category.id === 'child').parentId, undefined)
+  assert.equal(saved.categories.find(category => category.id === 'child').visibility, 'private')
+  assert.equal(saved.categories.find(category => category.id === 'nested').visibility, 'private')
+  const visitor = await (await request(env, '/api/storage?getConfig=true')).json()
+  assert.equal(visitor.links.some(link => link.id === 'bookmark-child'), false)
+  const cookie = await unlock(env, 'child', 'alpha-password')
+  assert.equal((await (await request(env, '/api/storage?getConfig=links&category=child', { headers: { Cookie: cookie } })).json()).length, 1)
+  assert.equal((await request(env, '/api/storage', { token, data: { links: snapshot.links, version: snapshot.version } })).status, 409)
+  assert.equal(await env.CLOUDNAV_KV.get('links:a'), null)
+})
+
+test('public bookmark metadata and favicon configuration do not reveal credential-bearing icon URLs', async t => {
+  const env = createEnv()
+  const token = await login(env)
+  const icon = 'https://icons.example/private.png?key=hidden-icon-key'
+  await request(env, '/api/storage', { token, data: { categories: [{ id: 'common', name: 'Public' }], links: [{ id: 'icon-bookmark', categoryId: 'common', url: 'https://public.example', icon, iconType: 'customapi', iconConfig: { customApiUrl: icon }, customIconUrl: icon }] } })
+  await env.CLOUDNAV_KV.put('favicon:public.example', icon)
+  for (const path of ['/api/storage?getConfig=true', '/api/storage?getConfig=links', '/api/storage?getConfig=favicon&domain=public.example']) {
+    assert.doesNotMatch(await (await request(env, path, { token: 'public' })).text(), /hidden-icon-key|customApiUrl/)
+  }
+  const upstream = t.mock.method(globalThis, 'fetch', async url => {
+    assert.equal(String(url), icon)
+    return new Response(new Uint8Array([0, 0, 1, 0]), { headers: { 'Content-Type': 'image/png' } })
+  })
+  const response = await request(env, '/api/public-data?kind=icon&id=icon-bookmark')
+  assert.equal(response.status, 200)
+  assert.equal(upstream.mock.callCount(), 1)
+  const full = await (await request(env, '/api/storage?getConfig=true', { token })).json()
+  assert.equal(full.links[0].icon, icon)
+})
+
+test('infrastructure records cannot be read or deleted through the icon API', async () => {
+  const { env, token } = await privacyFixture()
+  for (const key of ['__cloudnav/navigation-head', `__cloudnav/session/${token}`]) {
+    assert.equal((await request(env, `/api/favicon?key=${encodeURIComponent(key)}`, { token })).status, 404)
+    assert.equal((await request(env, `/api/upload?key=${encodeURIComponent(key)}`, { method: 'DELETE', token })).status, 400)
+    assert.ok(await env.CLOUDNAV_R2.get(key))
+  }
+  assert.equal((await request(env, '/api/storage', { token, data: { key: 'navigation_snapshot:protected', value: '{}' } })).status, 400)
 })

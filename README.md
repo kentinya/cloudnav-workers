@@ -16,9 +16,9 @@
 - **前端可视化编辑**：右键菜单 / 拖拽排序 / 批量操作 / 分类管理
 - **访客模式**：普通用户可正常浏览，登录后获得管理权限
 - **私密分类**：独立分类密码由 Worker 验证，未解锁的书签不进入公开搜索或置顶
-- **KV 按分类存储**：链接按 `links:{category_id}` 拆分存储，读取时自动聚合
+- **KV 云端存储**：导航使用版本快照并保留按分类兼容数据，拒绝旧页面覆盖新数据
 - **Cloudflare Workers 部署**：一个 Worker 同时提供静态页面和 API，使用 KV / R2 存储
-- **KV 云端存储**：数据持久化，localStorage 缓存 + KV 双向同步
+- **云端保存**：显式保存时校验版本，localStorage 仅作缓存
 - **图标缓存**：可抓取网站图标并缓存到 Cloudflare R2
 - **AI 辅助**：集成 Gemini / OpenAI 兼容 API，自动填充链接描述、智能分类建议
 - **数据导入导出**：Chrome 书签 HTML / JSON 备份 / WebDAV 云同步
@@ -64,7 +64,7 @@
 ┌──────────────────┴───────────────────────────┐
 │     Cloudflare Workers API                   │
 │                                              │
-│  KV 存储：links:{category_id} 按分类拆分     │
+│  KV 存储：版本快照 + 按分类兼容镜像     │
 │  认证：安全随机 Token + 自动清理旧 Token     │
 │  数据持久化：Workers KV + Cloudflare R2      │
 └──────────────────────────────────────────────┘
@@ -78,7 +78,7 @@
 
 全程在网页中完成，无需在本地安装 Node.js、pnpm 或 Wrangler：
 
-1. 登录 Cloudflare，在 **R2 Object Storage** 中按提示开通 R2，本项目使用它存储图标。
+1. 登录 Cloudflare，在 **R2 Object Storage** 中按提示开通 R2，本项目使用它存储图标、导航版本指针及会话撤销记录。
 2. 点击上方按钮，授权 GitHub，并将项目复制到自己的 GitHub 账号。
 3. 在部署页面设置 Worker 名称和管理员密码 **`PASSWORD`**，将示例值替换为自己的密码。
 4. 确认构建命令为 **`pnpm build`**、部署命令为 **`pnpm exec wrangler deploy`**，然后点击 **Deploy**。这些命令由 Cloudflare 执行。

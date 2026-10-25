@@ -3,6 +3,7 @@
 // 支持按分类拆分链接存储
 
 import { getKV, getCorsHeaders, jsonResponse } from './_kvAdapter.js';
+import { readConfigSection, publicConfig } from './_config.js';
 import { isAdmin, categoryAccess, readCategories, safeCategories, readLinks, prepareCategories, canReadIcon } from './_access.js';
 
 const STORAGE_KEYS = {
@@ -11,14 +12,6 @@ const STORAGE_KEYS = {
 };
 
 const CONFIG_SECTIONS = ['ai', 'website', 'mastodon', 'weather', 'search', 'icon', 'view', 'ui'];
-
-async function readConfigSection(kv, section) {
-  const sectionStr = await kv.get(`config:${section}`);
-  if (sectionStr) return JSON.parse(sectionStr);
-  const configStr = await kv.get('config');
-  const config = configStr ? JSON.parse(configStr) : {};
-  return config[section] || (section === 'mastodon' ? config.ticker : null) || null;
-}
 
 async function mergeAllConfigSections(kv) {
   const configStr = await kv.get('config');
@@ -71,7 +64,7 @@ async function saveCategoryLinks(kv, links) {
     const catLinks = grouped[catId] || [];
     if (catLinks.length === 0) {
       // 没有任何链接属于该分类，为了防止其他设备拉取到旧残留数据，直接在 KV 中删除此分类对应的 Key
-      return kv.delete(categoryLinksKey(catId)).catch(() => {});
+      return kv.delete(categoryLinksKey(catId));
     } else {
       return kv.put(categoryLinksKey(catId), JSON.stringify(catLinks));
     }
@@ -92,8 +85,22 @@ export async function onRequest(context) {
   try {
     const kv = getKV(env);
     const admin = await isAdmin(request, env, kv);
-    const categories = await readCategories(kv);
+    const writeBody = request.method === 'POST' ? await request.json() : null;
+    const needsNavigation = (writeBody && (writeBody.links || writeBody.categories || ['links', 'categories'].includes(writeBody.saveConfig) || writeBody.key === 'cate_config' || writeBody.key?.startsWith('links:'))) || ['true', 'links', 'categories'].includes(url.searchParams.get('getConfig')) || url.searchParams.get('key') === 'cate_config';
+    const categories = needsNavigation ? await readCategories(kv) : [];
     const allowed = await categoryAccess(request, env, categories, admin);
+
+    const visibleLinks = async (selected = categories) => {
+      const links = await readLinks(kv, selected, allowed);
+      if (admin) return links;
+      const config = await readConfigSection(kv, 'icon') || {};
+      return links.map(({ iconConfig, customIconUrl, cloudflareR2Url, edgeoneBlobUrl, ...link }) => {
+        if (/^https?:/.test(link.icon || '') && (['customapi', 'customurl'].includes(link.iconType) || ['customapi', 'customurl'].includes(config.source))) {
+          link.icon = `/api/public-data?kind=icon&id=${encodeURIComponent(link.id)}`;
+        }
+        return link;
+      });
+    };
 
     // ==================== GET ====================
     if (request.method === 'GET') {
@@ -129,12 +136,7 @@ export async function onRequest(context) {
           },
         };
         const value = sectionVal || defaults[getConfig] || {};
-        // AI credentials are administrator settings, while appearance remains public.
-        if (!admin && getConfig === 'ai') {
-          const { websiteTitle, faviconUrl, navigationName, sidebarNavigationName, defaultViewMode } = value;
-          return jsonResponse({ websiteTitle, faviconUrl, navigationName, sidebarNavigationName, defaultViewMode }, 200, corsHeaders);
-        }
-        return jsonResponse(value, 200, corsHeaders);
+        return jsonResponse(admin ? value : publicConfig(getConfig, value), 200, corsHeaders);
       }
 
       // 获取 Favicon 缓存
@@ -145,7 +147,7 @@ export async function onRequest(context) {
         }
         if (!await canReadIcon(request, env, undefined, domain)) return jsonResponse({ icon: null, cached: false }, 200, corsHeaders);
         const cachedIcon = await kv.get(`favicon:${domain}`);
-        return jsonResponse({ icon: cachedIcon || null, cached: !!cachedIcon }, 200, corsHeaders);
+        return jsonResponse({ icon: cachedIcon ? (admin ? cachedIcon : `/api/favicon?domain=${encodeURIComponent(domain)}`) : null, cached: !!cachedIcon }, 200, corsHeaders);
       }
 
       if (getConfig === 'categories') {
@@ -157,7 +159,7 @@ export async function onRequest(context) {
           return jsonResponse({ error: '请先解锁分类' }, 403, corsHeaders);
         }
         const selected = category ? categories.filter(item => item.id === category) : categories;
-        return jsonResponse(await readLinks(kv, selected, allowed), 200, corsHeaders);
+        return jsonResponse(await visibleLinks(selected), 200, corsHeaders);
       }
 
       // 按 Key 读取
@@ -178,7 +180,8 @@ export async function onRequest(context) {
       if (getConfig === 'true') {
         return jsonResponse({
           isAdmin: admin,
-          links: await readLinks(kv, categories, allowed),
+          version: admin ? await kv.navigationVersion() : undefined,
+          links: await visibleLinks(),
           categories: await safeCategories(categories, allowed, admin),
         }, 200, corsHeaders);
       }
@@ -188,7 +191,7 @@ export async function onRequest(context) {
 
     // ==================== POST ====================
     if (request.method === 'POST') {
-      const body = await request.json();
+      const body = writeBody;
       if (!admin) {
         return jsonResponse({ error: '管理操作需要管理员验证' }, 401, corsHeaders);
       }
@@ -251,7 +254,7 @@ export async function onRequest(context) {
 
       // 写入任意 key（用于设置等独立 KV 项）
       if (body.key && body.value && body.key !== STORAGE_KEYS.CONFIG_KEY) {
-        if (/^(auth_token:|category_token:|last_token$)/.test(body.key)) {
+        if (/^(auth_token:|category_token:|last_token$|navigation_snapshot:)/.test(body.key)) {
           return jsonResponse({ error: 'Reserved key' }, 400, corsHeaders);
         }
         await kv.put(body.key, body.value);
@@ -277,7 +280,7 @@ export async function onRequest(context) {
     return jsonResponse({ error: 'Method Not Allowed' }, 405, corsHeaders);
 
   } catch (err) {
-    console.error('Storage API error:', err);
-    return jsonResponse({ error: 'Failed to fetch data' }, 500, corsHeaders);
+    if (!err.status) console.error('Storage API error:', err);
+    return jsonResponse({ error: err.status ? err.message : 'Failed to fetch data' }, err.status || 500, corsHeaders);
   }
 }

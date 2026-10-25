@@ -173,7 +173,7 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
 
   const handleDeleteClick = (cat: Category) => {
     if (!onVerifyPassword || hasVerifiedPermissions) {
-      if (confirm(`确定删除"${cat.name}"分类吗？该分类下的书签将移动到"常用推荐"。`)) {
+      if (confirm(`确定删除"${cat.name}"分类吗？该分类下的书签将移动到"常用推荐"，并使用其公开/私密权限。`)) {
         const newCats = localCategories.filter(c => c.id !== cat.id);
         markChanged(newCats);
       }
@@ -192,7 +192,7 @@ const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
       if (cat) startEdit(cat);
     } else if (pendingAction.type === 'delete') {
       const cat = localCategories.find(c => c.id === pendingAction.categoryId);
-      if (cat && confirm(`确定删除"${cat.name}"分类吗？`)) {
+      if (cat && confirm(`确定删除"${cat.name}"分类吗？该分类下的书签将移动到"常用推荐"，并使用其公开/私密权限。`)) {
         markChanged(localCategories.filter(c => c.id !== cat.id));
       }
     }

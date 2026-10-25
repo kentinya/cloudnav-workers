@@ -39,37 +39,12 @@ const WeatherDisplay: React.FC<WeatherDisplayProps> = ({ config }) => {
               setRegion(wd.region);
             }
           }
-        } else if (config.provider === 'qweather' && config.qweatherApiKey && config.qweatherLocation) {
-          const host = config.qweatherHost || 'devapi.qweather.com';
-          const res = await fetch(`https://${host}/v7/weather/now?location=${config.qweatherLocation}&key=${config.qweatherApiKey}`);
+        } else {
+          const res = await fetch('/api/public-data?kind=weather');
           if (res.ok) {
             const data = await res.json();
-            if (data.now) {
-              const unit = config.unit === 'fahrenheit' ? '°F' : '°C';
-              setWeatherText(`${data.now.text} ${data.now.temp}${unit}`);
-              // QWeather location might need another API call to get name, or we use the location ID
-              setRegion(config.qweatherLocation);
-            }
-          }
-        } else if (config.provider === 'openweather' && config.openweatherApiKey) {
-          const city = config.openweatherCity || 'Beijing';
-          const units = config.unit === 'fahrenheit' ? 'imperial' : 'metric';
-          const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${config.openweatherApiKey}&units=${units}`);
-          if (res.ok) {
-            const data = await res.json();
-            const unit = config.unit === 'fahrenheit' ? '°F' : '°C';
-            setWeatherText(`${data.weather[0]?.main} ${Math.round(data.main.temp)}${unit}`);
-            setRegion(data.name);
-          }
-        } else if (config.provider === 'visualcrossing' && config.visualcrossingApiKey && config.visualcrossingLocation) {
-          const res = await fetch(`https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${config.visualcrossingLocation}/today?unitGroup=metric&key=${config.visualcrossingApiKey}&contentType=json`);
-          if (res.ok) {
-            const data = await res.json();
-            const today = data.days?.[0];
-            if (today) {
-              setWeatherText(`${today.conditions} ${Math.round(today.temp)}°C`);
-              setRegion(data.address);
-            }
+            setWeatherText(data.weatherText || null);
+            setRegion(data.region || null);
           }
         }
       } catch (e) {

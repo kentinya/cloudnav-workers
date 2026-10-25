@@ -29,6 +29,7 @@ export async function onRequest(context) {
   const isAuthenticated = await verifyAuth({
     providedPassword,
     serverPassword: env.PASSWORD,
+    r2: env.CLOUDNAV_R2,
     kv,
   });
 
@@ -40,6 +41,7 @@ export async function onRequest(context) {
   if (request.method === 'DELETE') {
     const url = new URL(request.url);
     const key = url.searchParams.get('key');
+    if (key?.startsWith('__cloudnav/')) return jsonResponse({ error: 'Reserved key' }, 400, corsHeaders);
     if (!key) {
       return jsonResponse({ error: 'Key parameter required' }, 400, corsHeaders);
     }

@@ -1,8 +1,9 @@
+import { saveSession, revokeSession } from './_sessions.js';
 // 认证接口
 // Cloudflare Workers API
 
 import { getKV, getCorsHeaders, jsonResponse } from './_kvAdapter.js';
-import { adminToken, sessionCookie } from './_access.js';
+import { cookies, sessionCookie } from './_access.js';
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -20,8 +21,8 @@ export async function onRequest(context) {
     const kv = getKV(env);
     const { password, logout } = await request.json();
     if (logout) {
-      const token = adminToken(request);
-      if (/^[a-f0-9]{64}$/.test(token)) await kv.delete(`auth_token:${token}`);
+      const tokens = new Set([request.headers.get('x-auth-password'), cookies(request).get('cloudnav_admin')]);
+      await Promise.all([...tokens].map(token => revokeSession(env, token)));
       return jsonResponse({ success: true }, 200, {
         ...corsHeaders, 'Set-Cookie': sessionCookie(request, 'cloudnav_admin', '', 0),
       });
@@ -35,15 +36,8 @@ export async function onRequest(context) {
       return jsonResponse({ error: '密码错误' }, 401, corsHeaders);
     }
 
-    // 清理旧 Token：读取上次生成的 token 并删除
-    try {
-      const oldToken = await kv.get('last_token');
-      if (oldToken) {
-        await kv.delete(`auth_token:${oldToken}`);
-      }
-    } catch (e) {
-      console.warn('Failed to clean old token:', e);
-    }
+    const oldToken = await kv.get('last_token');
+    if (oldToken) await revokeSession(env, oldToken);
 
     // 生成安全随机 Token
     const token = generateSecureToken();
@@ -58,6 +52,8 @@ export async function onRequest(context) {
     } catch (e) {
       console.warn('Failed to read expiry config:', e);
     }
+
+    await saveSession(env, token, expirationTtl ? Date.now() + expirationTtl * 1000 : null);
 
     // 记录认证时间
     await kv.put('last_auth_time', Date.now().toString());
