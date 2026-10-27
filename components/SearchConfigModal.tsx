@@ -259,7 +259,9 @@ const SearchConfigModal: React.FC<SearchConfigModalProps> = ({
                           className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                         />
                         {index === 0 && source.enabled && (
-                          <Star size={16} className="text-yellow-500 fill-current" title="默认搜索引擎" />
+                          <span title="默认搜索引擎">
+                            <Star size={16} className="text-yellow-500 fill-current" />
+                          </span>
                         )}
                         <Globe size={16} className="text-slate-400" />
                       </div>

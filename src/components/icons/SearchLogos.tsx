@@ -25,7 +25,7 @@ export const DuckDuckGoLogo = (props: React.SVGProps<SVGSVGElement>) => (
 );
 
 export const BingLogo = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="297mm" height="210mm" style={{ shapeRendering: 'geometricPrecision', textRendering: 'geometricPrecision', imageRendering: 'optimizeQuality', fillRule: 'evenodd', clipRule: 'evenodd' }} viewBox="0 0 29700 21000" {...props}>
+  <svg xmlns="http://www.w3.org/2000/svg" xmlSpace="preserve" width="297mm" height="210mm" style={{ shapeRendering: 'geometricPrecision', textRendering: 'geometricPrecision', fillRule: 'evenodd', clipRule: 'evenodd' }} viewBox="0 0 29700 21000" {...props}>
     <defs>
       <linearGradient id="bing_logo_a" gradientUnits="userSpaceOnUse" x1="9438.21" y1="2509.42" x2="9012.51" y2="23085.06">
         <stop offset="0" style={{ stopOpacity: 1, stopColor: '#26b8f4' }}/>

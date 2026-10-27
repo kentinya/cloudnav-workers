@@ -85,8 +85,8 @@ function buildCategoryTree(cats: Category[]): CategoryWithChildren[] {
 export function CategoriesProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(categoriesReducer, {
     categories: [],
-    unlockedCategoryIds: new Set(),
-    expandedCategories: new Set(),
+    unlockedCategoryIds: new Set<string>(),
+    expandedCategories: new Set<string>(),
   });
 
   const { authToken } = useAuthContext();

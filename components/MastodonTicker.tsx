@@ -31,7 +31,7 @@ const MastodonTicker: React.FC<TickerProps> = ({ config, isCollapsed }) => {
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
-  const intervalRef = useRef<NodeJS.Timeout>();
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentIndexRef = useRef(0);
 
   const defaultItems: TickerItem[] = [

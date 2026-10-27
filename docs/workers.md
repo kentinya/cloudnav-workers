@@ -124,11 +124,12 @@ Vite 将 `/api` 代理到 8788；8788 的页面来自 `dist`，修改前端后�
 已有 `dist` 时，可以用 `pnpm dev:api` 直接启动后端。
 
 ```sh
+pnpm type-check       # 检查前端与 Vite 配置的 TypeScript 类型
 pnpm test:worker      # API、KV/R2、静态资源及旧版图标备份兼容性测试
 pnpm deploy:dry-run   # 本地生产构建与 Worker 打包，不上传或创建云端资源
 ```
 
-仓库已有 `pnpm type-check` 类型错误，以及 ESLint 9 不兼容 `.eslintrc.json` 的问题。
+`pnpm type-check` 分别检查前端和 Vite 配置，无需生成配置声明文件。ESLint 9 不兼容 `.eslintrc.json` 的问题仍需单独处理。
 
 ## 路由说明
 

@@ -33,7 +33,7 @@ export function AppLayout() {
   // Hooks
   const { 
     searchQuery, setSearchQuery, searchResults, isMobileSearchOpen, setIsMobileSearchOpen, 
-    isSearchExpanded, setIsSearchExpanded,
+    isSearchExpanded, setIsSearchExpanded, externalSources, updateExternalSources,
     isInternal, setIsInternal, handleSearch, visitorEngineId, setVisitorEngineId 
   } = useSearch();
   const { initData } = useDataSync();
@@ -550,6 +550,8 @@ export function AppLayout() {
           <SearchConfigModal
             isOpen={isSearchConfigModalOpen}
             onClose={() => setIsSearchConfigModalOpen(false)}
+            sources={externalSources}
+            onSave={updateExternalSources}
           />
         )}
 

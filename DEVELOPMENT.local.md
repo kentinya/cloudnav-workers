@@ -23,11 +23,12 @@ cd /Users/songzhidong/CloudNav-Worker
 ```sh
 pnpm dev:worker       # 构建前端并启动完整 Worker
 pnpm dev              # 第二个终端：Vite 热更新，API 代理到 Worker
+pnpm type-check       # 前端和 Vite 配置的 TypeScript 类型检查
 pnpm test:worker      # Worker API 与图标备份兼容性测试
 pnpm deploy:dry-run   # 本地构建和打包，不部署
 ```
 
 页面和静态资源、API 404、八个 API 的预检、登录、KV 读写、R2 上传/读取/删除及 Vite API 代理均已在本地 Workers 运行时验证。
-尚未创建云端资源或部署。原仓库已有的类型检查错误和 ESLint 配置不兼容问题仍保留。
+尚未创建云端资源或部署。类型检查问题已修复，ESLint 配置不兼容问题仍保留。
 
 正式部署与资源创建请参阅 [Workers 部署说明](docs/workers.md)。

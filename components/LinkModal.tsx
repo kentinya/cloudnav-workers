@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Sparkles, Loader2, Pin, Wand2, Trash2 } from 'lucide-react';
 import { LinkItem, Category, AIConfig, IconSourceType, IconConfig } from '../types';
-import { generateLinkDescription, suggestCategory } from '../services/geminiService';
+import { generateLinkTitle, generateLinkDescription, suggestCategory } from '../services/geminiService';
 import { toast } from './Toast';
 import { STORAGE_KEYS } from '../src/constants';
 
@@ -20,6 +20,12 @@ interface LinkModalProps {
 
 const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, onDelete, categories, initialData, aiConfig, defaultCategoryId, iconConfig, supportsUpload = true }) => {
   const [title, setTitle] = useState('');
+  const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
+  const titleRequestId = useRef(0);
+  const invalidateTitleRequest = () => {
+    titleRequestId.current += 1;
+    setIsGeneratingTitle(false);
+  };
   const [url, setUrl] = useState('');
   const [description, setDescription] = useState('');
   const [categoryId, setCategoryId] = useState(categories[0]?.id || 'common');
@@ -190,6 +196,7 @@ const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, onDelete
   };
 
   useEffect(() => {
+    invalidateTitleRequest();
     if (isOpen) {
       if (initialData) {
         setTitle(initialData.title);
@@ -261,6 +268,8 @@ const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, onDelete
     }
   }, [isOpen, initialData, categories, defaultCategoryId]);
 
+  useEffect(() => () => { titleRequestId.current += 1; }, []);
+
   // 当URL变化且启用自动获取图标时，自动获取图标
   useEffect(() => {
     if (url && autoFetchIcon && !initialData) {
@@ -314,6 +323,7 @@ const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, onDelete
     e.preventDefault();
     
     if (!title || !url) return;
+    invalidateTitleRequest();
     
     // 确保URL有协议前缀
     let finalUrl = url;
@@ -323,7 +333,6 @@ const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, onDelete
     
     // 保存链接数据
     onSave({
-      id: initialData?.id || '',
       title,
       url: finalUrl,
       icon,
@@ -358,6 +367,39 @@ const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, onDelete
       }
     } else {
       onClose();
+    }
+  };
+
+  const handleGenerateTitle = async () => {
+    if (!url.trim() || isGeneratingTitle) return;
+    if (!aiConfig.apiKey) {
+      toast.warning('请先点击侧边栏左下角设置图标配置 AI API Key');
+      return;
+    }
+
+    let normalizedUrl: string;
+    try {
+      const value = url.trim();
+      const parsed = new URL(/^[a-z][a-z\d+.-]*:/i.test(value) ? value : `https://${value}`);
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Invalid protocol');
+      normalizedUrl = parsed.href;
+    } catch {
+      toast.error('请先输入有效的 HTTP/HTTPS 链接');
+      return;
+    }
+
+    const requestId = ++titleRequestId.current;
+    setIsGeneratingTitle(true);
+    try {
+      const generatedTitle = await generateLinkTitle(normalizedUrl, aiConfig);
+      // Editing, saving, closing, or switching bookmarks invalidates old results.
+      if (requestId !== titleRequestId.current) return;
+      if (generatedTitle) setTitle(generatedTitle);
+      else toast.error('标题生成失败，请检查 AI 配置后重试，或手动填写');
+    } catch {
+      if (requestId === titleRequestId.current) toast.error('标题生成失败，请稍后重试');
+    } finally {
+      if (requestId === titleRequestId.current) setIsGeneratingTitle(false);
     }
   };
 
@@ -493,25 +535,45 @@ const LinkModal: React.FC<LinkModalProps> = ({ isOpen, onClose, onSave, onDelete
         <form onSubmit={handleSave} className="flex min-h-0 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1 dark:text-slate-300">标题</label>
+            <div className="flex justify-between items-center mb-1">
+              <label htmlFor="link-title" className="block text-sm font-medium dark:text-slate-300">标题</label>
+              <button
+                type="button"
+                onClick={handleGenerateTitle}
+                disabled={!url.trim() || isGeneratingTitle}
+                aria-label="AI 自动填写标题"
+                className="text-xs flex items-center gap-1 text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isGeneratingTitle ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                {isGeneratingTitle ? '正在识别...' : 'AI 自动填写'}
+              </button>
+            </div>
             <input
+              id="link-title"
               type="text"
               required
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => {
+                invalidateTitleRequest();
+                setTitle(e.target.value);
+              }}
               className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
               placeholder="网站名称"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1 dark:text-slate-300">URL 链接</label>
+            <label htmlFor="link-url" className="block text-sm font-medium mb-1 dark:text-slate-300">URL 链接</label>
             <div className="flex gap-2">
               <input
+                id="link-url"
                 type="text"
                 required
                 value={url}
-                onChange={(e) => setUrl(e.target.value)}
+                onChange={(e) => {
+                  invalidateTitleRequest();
+                  setUrl(e.target.value);
+                }}
                 className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                 placeholder="example.com 或 https://..."
               />
